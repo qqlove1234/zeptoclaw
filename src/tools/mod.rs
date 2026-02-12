@@ -22,6 +22,10 @@
 //! - `WebSearchTool`: Search the web via Brave Search API
 //! - `WebFetchTool`: Fetch URL content and extract text
 //! - `MessageTool`: Send proactive outbound chat messages
+//! - `MemorySearchTool`: Search workspace markdown memory files
+//! - `MemoryGetTool`: Read memory files with line windows
+//! - `WhatsAppTool`: Send WhatsApp Cloud API messages
+//! - `GoogleSheetsTool`: Read and write Google Sheets ranges
 //!
 //! # Example
 //!
@@ -50,17 +54,23 @@
 
 pub mod cron;
 pub mod filesystem;
+pub mod gsheets;
+pub mod memory;
 pub mod message;
 mod registry;
 pub mod shell;
 pub mod spawn;
 mod types;
 pub mod web;
+pub mod whatsapp;
 
+pub use gsheets::GoogleSheetsTool;
+pub use memory::{MemoryGetTool, MemorySearchTool};
 pub use message::MessageTool;
 pub use registry::ToolRegistry;
 pub use types::{Tool, ToolContext};
 pub use web::{WebFetchTool, WebSearchTool};
+pub use whatsapp::WhatsAppTool;
 
 use async_trait::async_trait;
 use serde_json::Value;

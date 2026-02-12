@@ -1,1 +1,7 @@
-//! Skills module - Pluggable skill definitions and execution
+//! Skills system - markdown skill discovery and loading.
+
+mod loader;
+mod types;
+
+pub use loader::SkillsLoader;
+pub use types::{InstallOption, Skill, SkillInfo, SkillMetadata, SkillRequirements, ZeptoMetadata};

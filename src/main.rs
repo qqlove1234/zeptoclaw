@@ -5,6 +5,7 @@
 //! starting the multi-channel gateway, and managing configuration.
 
 use std::io::{self, BufRead, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -12,22 +13,27 @@ use clap::{Parser, Subcommand};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
-use zeptoclaw::agent::AgentLoop;
+use zeptoclaw::agent::{AgentLoop, ContextBuilder};
 use zeptoclaw::bus::{InboundMessage, MessageBus};
 use zeptoclaw::channels::{register_configured_channels, ChannelManager};
-use zeptoclaw::config::{Config, RuntimeType};
+use zeptoclaw::config::{Config, MemoryBackend, MemoryCitationsMode, RuntimeType};
 use zeptoclaw::cron::CronService;
+use zeptoclaw::heartbeat::{ensure_heartbeat_file, HeartbeatService, HEARTBEAT_PROMPT};
 use zeptoclaw::providers::{
     configured_provider_names, configured_unsupported_provider_names, resolve_runtime_provider,
     ClaudeProvider, OpenAIProvider, RUNTIME_SUPPORTED_PROVIDERS,
 };
 use zeptoclaw::runtime::{available_runtimes, create_runtime, NativeRuntime};
 use zeptoclaw::session::SessionManager;
+use zeptoclaw::skills::SkillsLoader;
 use zeptoclaw::tools::cron::CronTool;
 use zeptoclaw::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
 use zeptoclaw::tools::shell::ShellTool;
 use zeptoclaw::tools::spawn::SpawnTool;
-use zeptoclaw::tools::{EchoTool, MessageTool, WebFetchTool, WebSearchTool};
+use zeptoclaw::tools::{
+    EchoTool, GoogleSheetsTool, MemoryGetTool, MemorySearchTool, MessageTool, WebFetchTool,
+    WebSearchTool, WhatsAppTool,
+};
 
 #[derive(Parser)]
 #[command(name = "zeptoclaw")]
@@ -49,6 +55,20 @@ enum Commands {
     },
     /// Start multi-channel gateway
     Gateway,
+    /// Trigger or inspect heartbeat tasks
+    Heartbeat {
+        /// Show heartbeat file contents
+        #[arg(short, long)]
+        show: bool,
+        /// Edit heartbeat file in $EDITOR
+        #[arg(short, long)]
+        edit: bool,
+    },
+    /// Manage skills
+    Skills {
+        #[command(subcommand)]
+        action: SkillsAction,
+    },
     /// Manage authentication
     Auth {
         #[command(subcommand)]
@@ -58,6 +78,26 @@ enum Commands {
     Version,
     /// Show system status
     Status,
+}
+
+#[derive(Subcommand)]
+enum SkillsAction {
+    /// List skills (ready-only by default)
+    List {
+        /// Include unavailable skills
+        #[arg(short, long)]
+        all: bool,
+    },
+    /// Show full skill content
+    Show {
+        /// Skill name
+        name: String,
+    },
+    /// Create a new workspace skill template
+    Create {
+        /// Skill name
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -93,6 +133,12 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Gateway) => {
             cmd_gateway().await?;
+        }
+        Some(Commands::Heartbeat { show, edit }) => {
+            cmd_heartbeat(show, edit).await?;
+        }
+        Some(Commands::Skills { action }) => {
+            cmd_skills(action).await?;
         }
         Some(Commands::Auth { action }) => {
             cmd_auth(action).await?;
@@ -204,6 +250,16 @@ async fn cmd_onboard() -> Result<()> {
     // Configure web search integration
     configure_web_search(&mut config)?;
 
+    // Configure memory behavior.
+    configure_memory(&mut config)?;
+
+    // Configure WhatsApp + Google Sheets tools.
+    configure_whatsapp_tool(&mut config)?;
+    configure_google_sheets_tool(&mut config)?;
+
+    // Configure heartbeat service.
+    configure_heartbeat(&mut config)?;
+
     // Configure Telegram channel
     configure_telegram(&mut config)?;
 
@@ -261,6 +317,201 @@ fn configure_web_search(config: &mut Config) -> Result<()> {
         } else {
             println!("  Invalid number. Keeping current value.");
         }
+    }
+
+    Ok(())
+}
+
+/// Configure memory backend and memory tool behavior.
+fn configure_memory(config: &mut Config) -> Result<()> {
+    println!();
+    println!("Memory Setup");
+    println!("------------");
+    println!("Choose memory backend:");
+    println!("  1. Built-in workspace markdown memory (recommended)");
+    println!("  2. QMD (planned; currently falls back to built-in)");
+    println!("  3. Disabled");
+    println!();
+    print!(
+        "Memory backend [current={}]: ",
+        memory_backend_label(&config.memory.backend)
+    );
+    io::stdout().flush()?;
+
+    let backend_choice = read_line()?;
+    if !backend_choice.is_empty() {
+        config.memory.backend = match backend_choice.trim() {
+            "1" | "builtin" => MemoryBackend::Builtin,
+            "2" | "qmd" => MemoryBackend::Qmd,
+            "3" | "none" | "disabled" => MemoryBackend::Disabled,
+            _ => config.memory.backend.clone(),
+        };
+    }
+
+    println!();
+    println!("Memory citation mode:");
+    println!("  1. Auto (CLI on, other channels off)");
+    println!("  2. On");
+    println!("  3. Off");
+    print!(
+        "Citation mode [current={}]: ",
+        memory_citations_label(&config.memory.citations)
+    );
+    io::stdout().flush()?;
+
+    let citations_choice = read_line()?;
+    if !citations_choice.is_empty() {
+        config.memory.citations = match citations_choice.trim() {
+            "1" | "auto" => MemoryCitationsMode::Auto,
+            "2" | "on" => MemoryCitationsMode::On,
+            "3" | "off" => MemoryCitationsMode::Off,
+            _ => config.memory.citations.clone(),
+        };
+    }
+
+    print!(
+        "Include default memory files (MEMORY.md + memory/**/*.md)? [{}]: ",
+        if config.memory.include_default_memory {
+            "Y/n"
+        } else {
+            "y/N"
+        }
+    );
+    io::stdout().flush()?;
+
+    let include_default = read_line()?.to_ascii_lowercase();
+    if !include_default.is_empty() {
+        config.memory.include_default_memory = match include_default.as_str() {
+            "y" | "yes" => true,
+            "n" | "no" => false,
+            _ => config.memory.include_default_memory,
+        };
+    }
+
+    Ok(())
+}
+
+fn memory_backend_label(backend: &MemoryBackend) -> &'static str {
+    match backend {
+        MemoryBackend::Disabled => "none",
+        MemoryBackend::Builtin => "builtin",
+        MemoryBackend::Qmd => "qmd",
+    }
+}
+
+fn memory_citations_label(mode: &MemoryCitationsMode) -> &'static str {
+    match mode {
+        MemoryCitationsMode::Auto => "auto",
+        MemoryCitationsMode::On => "on",
+        MemoryCitationsMode::Off => "off",
+    }
+}
+
+/// Configure WhatsApp Cloud API tool credentials.
+fn configure_whatsapp_tool(config: &mut Config) -> Result<()> {
+    println!();
+    println!("WhatsApp Cloud API Tool Setup");
+    println!("-----------------------------");
+    println!("Get credentials from: https://developers.facebook.com/apps/");
+    print!("Enter WhatsApp Phone Number ID (or press Enter to skip): ");
+    io::stdout().flush()?;
+    let phone_number_id = read_line()?;
+
+    if phone_number_id.is_empty() {
+        println!("  Skipped WhatsApp tool setup.");
+        return Ok(());
+    }
+
+    print!("Enter WhatsApp Access Token: ");
+    io::stdout().flush()?;
+    let access_token = read_secret()?;
+    if access_token.is_empty() {
+        println!("  Missing access token, WhatsApp tool not enabled.");
+        return Ok(());
+    }
+
+    config.tools.whatsapp.phone_number_id = Some(phone_number_id);
+    config.tools.whatsapp.access_token = Some(access_token);
+
+    print!(
+        "Default WhatsApp template language [current={}]: ",
+        config.tools.whatsapp.default_language
+    );
+    io::stdout().flush()?;
+    let lang = read_line()?;
+    if !lang.is_empty() {
+        config.tools.whatsapp.default_language = lang;
+    }
+
+    println!("  WhatsApp tool configured.");
+    Ok(())
+}
+
+/// Configure Google Sheets tool credentials.
+fn configure_google_sheets_tool(config: &mut Config) -> Result<()> {
+    println!();
+    println!("Google Sheets Tool Setup");
+    println!("------------------------");
+    println!("Use either an OAuth access token or a base64 payload containing access_token.");
+    print!("Enter Google Sheets access token (or press Enter to skip): ");
+    io::stdout().flush()?;
+    let access_token = read_secret()?;
+
+    if !access_token.is_empty() {
+        config.tools.google_sheets.access_token = Some(access_token);
+        println!("  Google Sheets access token configured.");
+        return Ok(());
+    }
+
+    print!("Enter base64 credentials payload (optional): ");
+    io::stdout().flush()?;
+    let payload = read_line()?;
+    if !payload.is_empty() {
+        config.tools.google_sheets.service_account_base64 = Some(payload);
+        println!("  Google Sheets base64 payload configured.");
+    } else {
+        println!("  Skipped Google Sheets tool setup.");
+    }
+
+    Ok(())
+}
+
+/// Configure heartbeat settings.
+fn configure_heartbeat(config: &mut Config) -> Result<()> {
+    println!();
+    println!("Heartbeat Service Setup");
+    println!("-----------------------");
+    println!("Heartbeat periodically asks the agent to check HEARTBEAT.md.");
+    print!(
+        "Enable heartbeat service? [{}]: ",
+        if config.heartbeat.enabled {
+            "Y/n"
+        } else {
+            "y/N"
+        }
+    );
+    io::stdout().flush()?;
+    let enabled = read_line()?.to_ascii_lowercase();
+
+    if !enabled.is_empty() {
+        config.heartbeat.enabled = matches!(enabled.as_str(), "y" | "yes");
+    }
+
+    if config.heartbeat.enabled {
+        print!(
+            "Heartbeat interval in minutes [current={}]: ",
+            config.heartbeat.interval_secs / 60
+        );
+        io::stdout().flush()?;
+        let minutes = read_line()?;
+        if !minutes.is_empty() {
+            if let Ok(parsed) = minutes.parse::<u64>() {
+                config.heartbeat.interval_secs = (parsed.max(1)) * 60;
+            }
+        }
+        println!("  Heartbeat enabled.");
+    } else {
+        println!("  Heartbeat disabled.");
     }
 
     Ok(())
@@ -459,8 +710,20 @@ async fn create_agent(config: Config, bus: Arc<MessageBus>) -> Result<Arc<AgentL
         SessionManager::new_memory()
     });
 
+    let skills_prompt = build_skills_prompt(&config);
+    let context_builder = if skills_prompt.is_empty() {
+        ContextBuilder::new()
+    } else {
+        ContextBuilder::new().with_skills(&skills_prompt)
+    };
+
     // Create agent loop
-    let agent = Arc::new(AgentLoop::new(config.clone(), session_manager, bus));
+    let agent = Arc::new(AgentLoop::with_context_builder(
+        config.clone(),
+        session_manager,
+        bus,
+        context_builder,
+    ));
 
     // Create and start cron service for scheduled tasks.
     let cron_store_path = Config::dir().join("cron").join("jobs.json");
@@ -523,6 +786,67 @@ Enable runtime.allow_fallback_to_native to opt in to native fallback.",
         .await;
     info!("Registered message tool");
 
+    // Register WhatsApp tool.
+    if let (Some(phone_number_id), Some(access_token)) = (
+        config.tools.whatsapp.phone_number_id.as_deref(),
+        config.tools.whatsapp.access_token.as_deref(),
+    ) {
+        if !phone_number_id.trim().is_empty() && !access_token.trim().is_empty() {
+            agent
+                .register_tool(Box::new(WhatsAppTool::with_default_language(
+                    phone_number_id.trim(),
+                    access_token.trim(),
+                    config.tools.whatsapp.default_language.trim(),
+                )))
+                .await;
+            info!("Registered whatsapp_send tool");
+        }
+    }
+
+    // Register Google Sheets tool.
+    if let Some(access_token) = config.tools.google_sheets.access_token.as_deref() {
+        let token = access_token.trim();
+        if !token.is_empty() {
+            agent
+                .register_tool(Box::new(GoogleSheetsTool::new(token)))
+                .await;
+            info!("Registered google_sheets tool");
+        }
+    } else if let Some(encoded) = config.tools.google_sheets.service_account_base64.as_deref() {
+        match GoogleSheetsTool::from_service_account(encoded.trim()) {
+            Ok(tool) => {
+                agent.register_tool(Box::new(tool)).await;
+                info!("Registered google_sheets tool from base64 payload");
+            }
+            Err(e) => warn!("Failed to initialize google_sheets tool: {}", e),
+        }
+    }
+
+    match &config.memory.backend {
+        MemoryBackend::Disabled => {
+            info!("Memory tools are disabled");
+        }
+        MemoryBackend::Builtin => {
+            agent
+                .register_tool(Box::new(MemorySearchTool::new(config.memory.clone())))
+                .await;
+            agent
+                .register_tool(Box::new(MemoryGetTool::new(config.memory.clone())))
+                .await;
+            info!("Registered memory_search and memory_get tools");
+        }
+        MemoryBackend::Qmd => {
+            warn!("Memory backend 'qmd' is not implemented yet; using built-in memory tools");
+            agent
+                .register_tool(Box::new(MemorySearchTool::new(config.memory.clone())))
+                .await;
+            agent
+                .register_tool(Box::new(MemoryGetTool::new(config.memory.clone())))
+                .await;
+            info!("Registered memory_search and memory_get tools");
+        }
+    }
+
     agent
         .register_tool(Box::new(CronTool::new(cron_service.clone())))
         .await;
@@ -564,6 +888,89 @@ Enable runtime.allow_fallback_to_native to opt in to native fallback.",
     }
 
     Ok(agent)
+}
+
+fn skills_loader_from_config(config: &Config) -> SkillsLoader {
+    let workspace_dir = config
+        .skills
+        .workspace_dir
+        .as_deref()
+        .map(expand_tilde)
+        .unwrap_or_else(|| Config::dir().join("skills"));
+    SkillsLoader::new(workspace_dir, None)
+}
+
+fn build_skills_prompt(config: &Config) -> String {
+    if !config.skills.enabled {
+        return String::new();
+    }
+
+    let loader = skills_loader_from_config(config);
+    let disabled: std::collections::HashSet<String> = config
+        .skills
+        .disabled
+        .iter()
+        .map(|name| name.to_ascii_lowercase())
+        .collect();
+
+    let visible_skills = loader
+        .list_skills(false)
+        .into_iter()
+        .filter(|info| !disabled.contains(&info.name.to_ascii_lowercase()))
+        .collect::<Vec<_>>();
+
+    if visible_skills.is_empty() {
+        return String::new();
+    }
+
+    let mut summary_lines = vec!["<skills>".to_string()];
+    for info in &visible_skills {
+        if let Some(skill) = loader.load_skill(&info.name) {
+            let available = loader.check_requirements(&skill);
+            summary_lines.push(format!("  <skill available=\"{}\">", available));
+            summary_lines.push(format!("    <name>{}</name>", escape_xml(&skill.name)));
+            summary_lines.push(format!(
+                "    <description>{}</description>",
+                escape_xml(&skill.description)
+            ));
+            summary_lines.push(format!(
+                "    <location>{}</location>",
+                escape_xml(&skill.path)
+            ));
+            summary_lines.push("  </skill>".to_string());
+        }
+    }
+    summary_lines.push("</skills>".to_string());
+
+    let mut always_names = loader.get_always_skills();
+    always_names.extend(config.skills.always_load.iter().cloned());
+    always_names.sort();
+    always_names.dedup();
+    always_names.retain(|name| !disabled.contains(&name.to_ascii_lowercase()));
+    always_names.retain(|name| loader.load_skill(name).is_some());
+
+    let always_content = if always_names.is_empty() {
+        String::new()
+    } else {
+        loader.load_skills_for_context(&always_names)
+    };
+
+    if always_content.is_empty() {
+        summary_lines.join("\n")
+    } else {
+        format!(
+            "{}\n\n## Active Skills\n\n{}",
+            summary_lines.join("\n"),
+            always_content
+        )
+    }
+}
+
+fn escape_xml(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Interactive or single-message agent mode
@@ -719,6 +1126,29 @@ async fn cmd_gateway() -> Result<()> {
         .await
         .with_context(|| "Failed to start channels")?;
 
+    let heartbeat_service = if config.heartbeat.enabled {
+        let heartbeat_path = heartbeat_file_path(&config);
+        match ensure_heartbeat_file(&heartbeat_path).await {
+            Ok(true) => info!("Created heartbeat file template at {:?}", heartbeat_path),
+            Ok(false) => {}
+            Err(e) => warn!(
+                "Failed to initialize heartbeat file {:?}: {}",
+                heartbeat_path, e
+            ),
+        }
+
+        let service = Arc::new(HeartbeatService::new(
+            heartbeat_path,
+            config.heartbeat.interval_secs,
+            bus.clone(),
+            "heartbeat:system",
+        ));
+        service.start().await?;
+        Some(service)
+    } else {
+        None
+    };
+
     // Start agent loop in background
     let agent_clone = Arc::clone(&agent);
     let agent_handle = tokio::spawn(async move {
@@ -739,6 +1169,10 @@ async fn cmd_gateway() -> Result<()> {
     println!();
     println!("Shutting down...");
 
+    if let Some(service) = &heartbeat_service {
+        service.stop().await;
+    }
+
     // Stop agent
     agent.stop();
 
@@ -752,6 +1186,147 @@ async fn cmd_gateway() -> Result<()> {
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), agent_handle).await;
 
     println!("Gateway stopped.");
+    Ok(())
+}
+
+fn heartbeat_file_path(config: &Config) -> PathBuf {
+    config
+        .heartbeat
+        .file_path
+        .as_deref()
+        .map(expand_tilde)
+        .unwrap_or_else(|| Config::dir().join("HEARTBEAT.md"))
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(stripped) = path.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(stripped);
+        }
+    } else if path == "~" {
+        if let Some(home) = dirs::home_dir() {
+            return home;
+        }
+    }
+    PathBuf::from(path)
+}
+
+/// Heartbeat utility command.
+async fn cmd_heartbeat(show: bool, edit: bool) -> Result<()> {
+    let config = Config::load().with_context(|| "Failed to load configuration")?;
+    let heartbeat_path = heartbeat_file_path(&config);
+
+    if ensure_heartbeat_file(&heartbeat_path).await? {
+        println!("Created heartbeat file at {:?}", heartbeat_path);
+    }
+
+    if show {
+        let content = tokio::fs::read_to_string(&heartbeat_path).await?;
+        println!("{}", content);
+        return Ok(());
+    }
+
+    if edit {
+        let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+        let status = std::process::Command::new(editor)
+            .arg(&heartbeat_path)
+            .status()
+            .with_context(|| "Failed to launch editor")?;
+        if !status.success() {
+            eprintln!("Editor exited with status: {}", status);
+        }
+        return Ok(());
+    }
+
+    let content = tokio::fs::read_to_string(&heartbeat_path)
+        .await
+        .unwrap_or_default();
+    if HeartbeatService::is_empty(&content) {
+        println!("Heartbeat file has no actionable tasks.");
+        return Ok(());
+    }
+
+    let bus = Arc::new(MessageBus::new());
+    let agent = create_agent(config, bus).await?;
+    let inbound = InboundMessage::new("cli", "heartbeat", "heartbeat:cli", HEARTBEAT_PROMPT);
+    let response = agent.process_message(&inbound).await?;
+    println!("{}", response);
+    Ok(())
+}
+
+/// Skills management command.
+async fn cmd_skills(action: SkillsAction) -> Result<()> {
+    let config = Config::load().with_context(|| "Failed to load configuration")?;
+    let loader = skills_loader_from_config(&config);
+
+    match action {
+        SkillsAction::List { all } => {
+            let disabled: std::collections::HashSet<String> = config
+                .skills
+                .disabled
+                .iter()
+                .map(|name| name.to_ascii_lowercase())
+                .collect();
+            let mut listed = loader.list_skills(!all);
+            listed.retain(|info| !disabled.contains(&info.name.to_ascii_lowercase()));
+
+            if listed.is_empty() {
+                println!("No skills found.");
+                return Ok(());
+            }
+
+            println!("Skills:");
+            for info in listed {
+                let ready = loader
+                    .load_skill(&info.name)
+                    .map(|skill| loader.check_requirements(&skill))
+                    .unwrap_or(false);
+                let marker = if ready {
+                    "ready"
+                } else {
+                    "missing requirements"
+                };
+                println!("  - {} ({}, {})", info.name, info.source, marker);
+            }
+        }
+        SkillsAction::Show { name } => {
+            if let Some(skill) = loader.load_skill(&name) {
+                println!("Name: {}", skill.name);
+                println!("Description: {}", skill.description);
+                println!("Source: {}", skill.source);
+                println!("Path: {}", skill.path);
+                println!();
+                println!("{}", skill.content);
+            } else {
+                eprintln!("Skill '{}' not found", name);
+            }
+        }
+        SkillsAction::Create { name } => {
+            let dir = loader.workspace_dir().join(&name);
+            let skill_file = dir.join("SKILL.md");
+            if skill_file.exists() {
+                eprintln!("Skill '{}' already exists at {:?}", name, skill_file);
+                return Ok(());
+            }
+
+            std::fs::create_dir_all(&dir)?;
+            let template = format!(
+                r#"---
+name: {name}
+description: Describe what this skill does.
+metadata: {{"zeptoclaw":{{"emoji":"📚","requires":{{}}}}}}
+---
+
+# {name} Skill
+
+Describe usage and concrete command examples.
+"#
+            );
+            std::fs::write(&skill_file, template)?;
+            println!("Created skill at {:?}", skill_file);
+        }
+    }
+
     Ok(())
 }
 
@@ -1036,6 +1611,63 @@ async fn cmd_status() -> Result<()> {
     println!("  Available: {}", available.join(", "));
     println!();
 
+    // Memory
+    println!("Memory");
+    println!("------");
+    println!(
+        "  Backend: {}",
+        memory_backend_label(&config.memory.backend)
+    );
+    println!(
+        "  Citations: {}",
+        memory_citations_label(&config.memory.citations)
+    );
+    println!(
+        "  Include default files: {}",
+        if config.memory.include_default_memory {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+    println!("  Max results: {}", config.memory.max_results);
+    println!("  Min score: {}", config.memory.min_score);
+    println!();
+
+    // Heartbeat
+    println!("Heartbeat");
+    println!("---------");
+    println!(
+        "  Enabled: {}",
+        if config.heartbeat.enabled {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+    println!("  Interval: {}s", config.heartbeat.interval_secs);
+    println!("  File: {:?}", heartbeat_file_path(&config));
+    println!();
+
+    // Skills
+    println!("Skills");
+    println!("------");
+    println!(
+        "  Enabled: {}",
+        if config.skills.enabled { "yes" } else { "no" }
+    );
+    println!(
+        "  Workspace dir: {:?}",
+        skills_loader_from_config(&config).workspace_dir()
+    );
+    if !config.skills.always_load.is_empty() {
+        println!("  Always load: {}", config.skills.always_load.join(", "));
+    }
+    if !config.skills.disabled.is_empty() {
+        println!("  Disabled: {}", config.skills.disabled.join(", "));
+    }
+    println!();
+
     // Provider status
     let runtime_provider_name = resolve_runtime_provider(&config).map(|provider| provider.name);
     println!(
@@ -1076,6 +1708,60 @@ async fn cmd_status() -> Result<()> {
     }
     println!("  - web_fetch");
     println!("  - message");
+    if config
+        .tools
+        .whatsapp
+        .phone_number_id
+        .as_deref()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+        && config
+            .tools
+            .whatsapp
+            .access_token
+            .as_deref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false)
+    {
+        println!("  - whatsapp_send");
+    } else {
+        println!("  - whatsapp_send (disabled: set tools.whatsapp.phone_number_id/access_token)");
+    }
+
+    let has_gsheets = config
+        .tools
+        .google_sheets
+        .access_token
+        .as_deref()
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+        || config
+            .tools
+            .google_sheets
+            .service_account_base64
+            .as_deref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+    if has_gsheets {
+        println!("  - google_sheets");
+    } else {
+        println!("  - google_sheets (disabled: set tools.google_sheets token config)");
+    }
+
+    match &config.memory.backend {
+        MemoryBackend::Disabled => {
+            println!("  - memory_search (disabled: memory.backend=none)");
+            println!("  - memory_get (disabled: memory.backend=none)");
+        }
+        MemoryBackend::Builtin => {
+            println!("  - memory_search");
+            println!("  - memory_get");
+        }
+        MemoryBackend::Qmd => {
+            println!("  - memory_search (qmd fallback -> builtin)");
+            println!("  - memory_get (qmd fallback -> builtin)");
+        }
+    }
     println!("  - cron");
     println!("  - spawn");
     println!();

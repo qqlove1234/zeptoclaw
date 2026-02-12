@@ -1,0 +1,325 @@
+//! Google Sheets API tool.
+
+use async_trait::async_trait;
+use base64::Engine;
+use reqwest::Client;
+use serde_json::{json, Value};
+
+use crate::error::{PicoError, Result};
+
+use super::{Tool, ToolContext};
+
+const SHEETS_API_BASE: &str = "https://sheets.googleapis.com/v4/spreadsheets";
+
+/// Tool for reading/writing Google Sheets ranges.
+pub struct GoogleSheetsTool {
+    client: Client,
+    access_token: String,
+}
+
+impl GoogleSheetsTool {
+    /// Create with an OAuth access token.
+    pub fn new(access_token: &str) -> Self {
+        Self {
+            client: Client::new(),
+            access_token: access_token.to_string(),
+        }
+    }
+
+    /// Parse a base64-encoded JSON payload to extract an `access_token`.
+    ///
+    /// This supports workflows where a short-lived token is provisioned in config.
+    pub fn from_service_account(encoded_json: &str) -> Result<Self> {
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(encoded_json)
+            .map_err(|e| PicoError::Config(format!("Invalid base64 credentials: {}", e)))?;
+        let payload: Value = serde_json::from_slice(&decoded)
+            .map_err(|e| PicoError::Config(format!("Invalid credentials JSON: {}", e)))?;
+        let token = payload
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|token| !token.trim().is_empty())
+            .ok_or_else(|| {
+                PicoError::Config(
+                    "Service account payload must include non-empty 'access_token'".to_string(),
+                )
+            })?;
+        Ok(Self::new(token))
+    }
+
+    fn extract_values(args: &Value) -> Result<Vec<Vec<String>>> {
+        let rows = args
+            .get("values")
+            .and_then(Value::as_array)
+            .ok_or_else(|| PicoError::Tool("Missing 'values' for write operation".to_string()))?;
+
+        let mut parsed = Vec::new();
+        for row in rows {
+            let row_values = row
+                .as_array()
+                .ok_or_else(|| PicoError::Tool("Each row must be an array".to_string()))?
+                .iter()
+                .map(|cell| {
+                    cell.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| cell.to_string())
+                })
+                .collect::<Vec<_>>();
+            parsed.push(row_values);
+        }
+        Ok(parsed)
+    }
+
+    async fn execute_read(&self, spreadsheet_id: &str, range: &str) -> Result<String> {
+        let encoded_range = encode_range(range);
+        let endpoint = format!(
+            "{}/{}/values/{}",
+            SHEETS_API_BASE, spreadsheet_id, encoded_range
+        );
+        let response = self
+            .client
+            .get(endpoint)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .send()
+            .await
+            .map_err(|e| PicoError::Tool(format!("Google Sheets request failed: {}", e)))?;
+
+        let status = response.status();
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|e| PicoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(PicoError::Tool(format!(
+                "Google Sheets API error {}: {}",
+                status, body
+            )));
+        }
+
+        let values = body
+            .get("values")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+
+        if values.is_empty() {
+            return Ok("No data found in requested range.".to_string());
+        }
+
+        let mut lines = Vec::new();
+        for (index, row) in values.iter().enumerate() {
+            let cells = row
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .map(|cell| cell.as_str().unwrap_or("").to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            lines.push(format!("Row {}: {}", index + 1, cells.join(" | ")));
+        }
+
+        Ok(lines.join("\n"))
+    }
+
+    async fn execute_append(
+        &self,
+        spreadsheet_id: &str,
+        range: &str,
+        values: Vec<Vec<String>>,
+    ) -> Result<String> {
+        let encoded_range = encode_range(range);
+        let endpoint = format!(
+            "{}/{}/values/{}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+            SHEETS_API_BASE, spreadsheet_id, encoded_range
+        );
+        self.execute_write("POST", &endpoint, values).await
+    }
+
+    async fn execute_update(
+        &self,
+        spreadsheet_id: &str,
+        range: &str,
+        values: Vec<Vec<String>>,
+    ) -> Result<String> {
+        let encoded_range = encode_range(range);
+        let endpoint = format!(
+            "{}/{}/values/{}?valueInputOption=USER_ENTERED",
+            SHEETS_API_BASE, spreadsheet_id, encoded_range
+        );
+        self.execute_write("PUT", &endpoint, values).await
+    }
+
+    async fn execute_write(
+        &self,
+        method: &str,
+        endpoint: &str,
+        values: Vec<Vec<String>>,
+    ) -> Result<String> {
+        let body = json!({ "values": values });
+        let request = match method {
+            "POST" => self.client.post(endpoint),
+            "PUT" => self.client.put(endpoint),
+            _ => {
+                return Err(PicoError::Tool(format!(
+                    "Unsupported HTTP method for Sheets write: {}",
+                    method
+                )))
+            }
+        };
+
+        let response = request
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| PicoError::Tool(format!("Google Sheets request failed: {}", e)))?;
+
+        let status = response.status();
+        let payload: Value = response
+            .json()
+            .await
+            .map_err(|e| PicoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(PicoError::Tool(format!(
+                "Google Sheets API error {}: {}",
+                status, payload
+            )));
+        }
+
+        let updated_rows = payload
+            .get("updates")
+            .and_then(|updates| updates.get("updatedRows"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+
+        Ok(format!(
+            "Google Sheets write successful (updated_rows={})",
+            updated_rows
+        ))
+    }
+}
+
+fn encode_range(range: &str) -> String {
+    range.replace(' ', "%20")
+}
+
+#[async_trait]
+impl Tool for GoogleSheetsTool {
+    fn name(&self) -> &str {
+        "google_sheets"
+    }
+
+    fn description(&self) -> &str {
+        "Read and write Google Sheets data ranges."
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "spreadsheet_id": {
+                    "type": "string",
+                    "description": "Spreadsheet ID from the sheet URL."
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["read", "append", "update"],
+                    "description": "Operation to perform."
+                },
+                "range": {
+                    "type": "string",
+                    "description": "A1 notation range, e.g. Orders!A:F."
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "description": "Rows to append/update for write actions."
+                }
+            },
+            "required": ["spreadsheet_id", "action", "range"]
+        })
+    }
+
+    async fn execute(&self, args: Value, _ctx: &ToolContext) -> Result<String> {
+        let spreadsheet_id = args
+            .get("spreadsheet_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| PicoError::Tool("Missing 'spreadsheet_id'".to_string()))?;
+        let action = args
+            .get("action")
+            .and_then(Value::as_str)
+            .ok_or_else(|| PicoError::Tool("Missing 'action'".to_string()))?;
+        let range = args
+            .get("range")
+            .and_then(Value::as_str)
+            .ok_or_else(|| PicoError::Tool("Missing 'range'".to_string()))?;
+
+        match action {
+            "read" => self.execute_read(spreadsheet_id, range).await,
+            "append" => {
+                let values = Self::extract_values(&args)?;
+                self.execute_append(spreadsheet_id, range, values).await
+            }
+            "update" => {
+                let values = Self::extract_values(&args)?;
+                self.execute_update(spreadsheet_id, range, values).await
+            }
+            other => Err(PicoError::Tool(format!("Unknown action '{}'", other))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_google_sheets_tool_properties() {
+        let tool = GoogleSheetsTool::new("token");
+        assert_eq!(tool.name(), "google_sheets");
+        assert!(tool.description().contains("Google Sheets"));
+    }
+
+    #[test]
+    fn test_google_sheets_tool_parameters() {
+        let tool = GoogleSheetsTool::new("token");
+        let params = tool.parameters();
+        assert!(params["properties"]["spreadsheet_id"].is_object());
+        assert!(params["properties"]["action"].is_object());
+        assert!(params["properties"]["range"].is_object());
+    }
+
+    #[test]
+    fn test_extract_values() {
+        let values = GoogleSheetsTool::extract_values(&json!({
+            "values": [["A", "B"], ["1", "2"]]
+        }))
+        .unwrap();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], vec!["A".to_string(), "B".to_string()]);
+    }
+
+    #[test]
+    fn test_from_service_account_requires_access_token() {
+        let payload = base64::engine::general_purpose::STANDARD.encode(r#"{"foo":"bar"}"#);
+        let result = GoogleSheetsTool::from_service_account(&payload);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_google_sheets_missing_args() {
+        let tool = GoogleSheetsTool::new("token");
+        let result = tool
+            .execute(json!({"action":"read"}), &ToolContext::new())
+            .await;
+        assert!(result.is_err());
+    }
+}

@@ -20,6 +20,12 @@ pub struct Config {
     pub gateway: GatewayConfig,
     /// Tools configuration
     pub tools: ToolsConfig,
+    /// Memory configuration
+    pub memory: MemoryConfig,
+    /// Heartbeat background task configuration
+    pub heartbeat: HeartbeatConfig,
+    /// Skills system configuration
+    pub skills: SkillsConfig,
     /// Runtime configuration for container isolation
     pub runtime: RuntimeConfig,
 }
@@ -314,6 +320,10 @@ impl Default for GatewayConfig {
 pub struct ToolsConfig {
     /// Web tools configuration
     pub web: WebToolsConfig,
+    /// WhatsApp Cloud API tool configuration
+    pub whatsapp: WhatsAppToolConfig,
+    /// Google Sheets tool configuration
+    pub google_sheets: GoogleSheetsToolConfig,
 }
 
 /// Web tools configuration
@@ -340,6 +350,175 @@ impl Default for WebSearchConfig {
         Self {
             api_key: None,
             max_results: 5,
+        }
+    }
+}
+
+/// WhatsApp Cloud API tool configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WhatsAppToolConfig {
+    /// WhatsApp Business account ID (optional, informational)
+    #[serde(default)]
+    pub business_account_id: Option<String>,
+    /// Phone number ID used in Cloud API endpoint path
+    #[serde(default)]
+    pub phone_number_id: Option<String>,
+    /// Permanent access token for Cloud API
+    #[serde(default)]
+    pub access_token: Option<String>,
+    /// Optional webhook verify token
+    #[serde(default)]
+    pub webhook_verify_token: Option<String>,
+    /// Default template language code
+    pub default_language: String,
+}
+
+impl Default for WhatsAppToolConfig {
+    fn default() -> Self {
+        Self {
+            business_account_id: None,
+            phone_number_id: None,
+            access_token: None,
+            webhook_verify_token: None,
+            default_language: "ms".to_string(),
+        }
+    }
+}
+
+/// Google Sheets tool configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct GoogleSheetsToolConfig {
+    /// OAuth bearer access token (recommended for tool usage)
+    #[serde(default)]
+    pub access_token: Option<String>,
+    /// Optional service account JSON encoded as base64
+    #[serde(default)]
+    pub service_account_base64: Option<String>,
+}
+
+// ============================================================================
+// Memory Configuration
+// ============================================================================
+
+/// Memory backend selection.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryBackend {
+    /// Disable memory tools.
+    #[serde(rename = "none")]
+    Disabled,
+    /// Built-in workspace markdown memory.
+    #[default]
+    Builtin,
+    /// QMD backend (falls back safely when unavailable).
+    Qmd,
+}
+
+/// Memory citation mode.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryCitationsMode {
+    /// Show citations depending on channel context.
+    #[default]
+    Auto,
+    /// Always include citations in snippets.
+    On,
+    /// Never include citations in snippets.
+    Off,
+}
+
+/// Memory configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Memory backend to use.
+    pub backend: MemoryBackend,
+    /// Citation mode for memory snippets.
+    pub citations: MemoryCitationsMode,
+    /// Whether to include MEMORY.md + memory/**/*.md by default.
+    pub include_default_memory: bool,
+    /// Default maximum memory search results.
+    pub max_results: u32,
+    /// Minimum score threshold for memory search results.
+    pub min_score: f32,
+    /// Maximum snippet length returned per result.
+    pub max_snippet_chars: u32,
+    /// Extra workspace-relative file/dir paths to include.
+    #[serde(default)]
+    pub extra_paths: Vec<String>,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            backend: MemoryBackend::Builtin,
+            citations: MemoryCitationsMode::Auto,
+            include_default_memory: true,
+            max_results: 6,
+            min_score: 0.2,
+            max_snippet_chars: 700,
+            extra_paths: Vec::new(),
+        }
+    }
+}
+
+// ============================================================================
+// Heartbeat Configuration
+// ============================================================================
+
+/// Heartbeat background service configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HeartbeatConfig {
+    /// Enable or disable heartbeat service.
+    pub enabled: bool,
+    /// Heartbeat interval in seconds.
+    pub interval_secs: u64,
+    /// Optional heartbeat file path override.
+    #[serde(default)]
+    pub file_path: Option<String>,
+}
+
+impl Default for HeartbeatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_secs: 30 * 60,
+            file_path: None,
+        }
+    }
+}
+
+// ============================================================================
+// Skills Configuration
+// ============================================================================
+
+/// Skills system configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkillsConfig {
+    /// Enable or disable the skills system.
+    pub enabled: bool,
+    /// Optional workspace skills directory override.
+    #[serde(default)]
+    pub workspace_dir: Option<String>,
+    /// Skills that should always be injected into context.
+    #[serde(default)]
+    pub always_load: Vec<String>,
+    /// Built-in or workspace skills to disable by name.
+    #[serde(default)]
+    pub disabled: Vec<String>,
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            workspace_dir: None,
+            always_load: Vec::new(),
+            disabled: Vec::new(),
         }
     }
 }

@@ -8,12 +8,17 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use zeptoclaw::{
     bus::{InboundMessage, MessageBus, OutboundMessage},
-    config::Config,
+    config::{Config, MemoryBackend, MemoryCitationsMode},
+    heartbeat::HeartbeatService,
     security::ShellSecurityConfig,
     session::{Message, SessionManager},
+    skills::SkillsLoader,
     tools::filesystem::ReadFileTool,
     tools::shell::ShellTool,
-    tools::{EchoTool, MessageTool, Tool, ToolContext, ToolRegistry, WebFetchTool, WebSearchTool},
+    tools::{
+        EchoTool, GoogleSheetsTool, MemoryGetTool, MemorySearchTool, MessageTool, Tool,
+        ToolContext, ToolRegistry, WebFetchTool, WebSearchTool, WhatsAppTool,
+    },
 };
 
 // ============================================================================
@@ -442,6 +447,96 @@ fn test_config_web_search_settings() {
 }
 
 #[test]
+fn test_config_memory_settings() {
+    let json = r#"{
+        "memory": {
+            "backend": "qmd",
+            "citations": "off",
+            "include_default_memory": false,
+            "max_results": 8,
+            "min_score": 0.4,
+            "max_snippet_chars": 512,
+            "extra_paths": ["notes", "memory/archive"]
+        }
+    }"#;
+
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert_eq!(config.memory.backend, MemoryBackend::Qmd);
+    assert_eq!(config.memory.citations, MemoryCitationsMode::Off);
+    assert!(!config.memory.include_default_memory);
+    assert_eq!(config.memory.max_results, 8);
+    assert_eq!(config.memory.min_score, 0.4);
+    assert_eq!(config.memory.max_snippet_chars, 512);
+    assert_eq!(config.memory.extra_paths.len(), 2);
+}
+
+#[test]
+fn test_config_heartbeat_settings() {
+    let json = r#"{
+        "heartbeat": {
+            "enabled": true,
+            "interval_secs": 900,
+            "file_path": "/tmp/heartbeat.md"
+        }
+    }"#;
+
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert!(config.heartbeat.enabled);
+    assert_eq!(config.heartbeat.interval_secs, 900);
+    assert_eq!(
+        config.heartbeat.file_path,
+        Some("/tmp/heartbeat.md".to_string())
+    );
+}
+
+#[test]
+fn test_config_skills_settings() {
+    let json = r#"{
+        "skills": {
+            "enabled": true,
+            "always_load": ["github", "weather"],
+            "disabled": ["legacy"]
+        }
+    }"#;
+
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert!(config.skills.enabled);
+    assert_eq!(config.skills.always_load, vec!["github", "weather"]);
+    assert_eq!(config.skills.disabled, vec!["legacy"]);
+}
+
+#[test]
+fn test_config_whatsapp_and_gsheets_settings() {
+    let json = r#"{
+        "tools": {
+            "whatsapp": {
+                "phone_number_id": "123456789",
+                "access_token": "wa-token",
+                "default_language": "ms"
+            },
+            "google_sheets": {
+                "access_token": "gs-token"
+            }
+        }
+    }"#;
+
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        config.tools.whatsapp.phone_number_id,
+        Some("123456789".to_string())
+    );
+    assert_eq!(
+        config.tools.whatsapp.access_token,
+        Some("wa-token".to_string())
+    );
+    assert_eq!(config.tools.whatsapp.default_language, "ms");
+    assert_eq!(
+        config.tools.google_sheets.access_token,
+        Some("gs-token".to_string())
+    );
+}
+
+#[test]
 fn test_web_search_tool_creation() {
     let tool = WebSearchTool::new("test-key");
     assert_eq!(tool.name(), "web_search");
@@ -458,6 +553,62 @@ fn test_message_tool_creation() {
     let bus = Arc::new(MessageBus::new());
     let tool = MessageTool::new(bus);
     assert_eq!(tool.name(), "message");
+}
+
+#[test]
+fn test_memory_search_tool_creation() {
+    let tool = MemorySearchTool::new(Config::default().memory);
+    assert_eq!(tool.name(), "memory_search");
+}
+
+#[test]
+fn test_memory_get_tool_creation() {
+    let tool = MemoryGetTool::new(Config::default().memory);
+    assert_eq!(tool.name(), "memory_get");
+}
+
+#[test]
+fn test_whatsapp_tool_creation() {
+    let tool = WhatsAppTool::new("123", "token");
+    assert_eq!(tool.name(), "whatsapp_send");
+}
+
+#[test]
+fn test_google_sheets_tool_creation() {
+    let tool = GoogleSheetsTool::new("token");
+    assert_eq!(tool.name(), "google_sheets");
+}
+
+#[test]
+fn test_heartbeat_is_empty_behavior() {
+    assert!(HeartbeatService::is_empty(""));
+    assert!(HeartbeatService::is_empty("# Header\n<!-- comment -->"));
+    assert!(!HeartbeatService::is_empty("Check order updates"));
+}
+
+#[test]
+fn test_skills_loader_frontmatter_parsing() {
+    let root = tempdir().unwrap();
+    let workspace = root.path().join("workspace_skills");
+    let builtin = root.path().join("builtin_skills");
+    std::fs::create_dir_all(workspace.join("demo")).unwrap();
+    std::fs::create_dir_all(builtin.join("demo")).unwrap();
+
+    std::fs::write(
+        workspace.join("demo/SKILL.md"),
+        "---\nname: demo\ndescription: Demo skill\n---\n# Demo",
+    )
+    .unwrap();
+    std::fs::write(
+        builtin.join("demo/SKILL.md"),
+        "---\nname: demo\ndescription: Builtin demo\n---\n# Builtin",
+    )
+    .unwrap();
+
+    let loader = SkillsLoader::new(workspace, Some(builtin));
+    let skill = loader.load_skill("demo").unwrap();
+    assert_eq!(skill.source, "workspace");
+    assert_eq!(skill.description, "Demo skill");
 }
 
 // ============================================================================

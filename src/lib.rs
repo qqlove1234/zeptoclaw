@@ -6,6 +6,8 @@ pub mod channels;
 pub mod config;
 pub mod cron;
 pub mod error;
+pub mod heartbeat;
+pub mod memory;
 pub mod providers;
 pub mod runtime;
 pub mod security;
@@ -20,6 +22,7 @@ pub use channels::{BaseChannelConfig, Channel, ChannelManager, TelegramChannel};
 pub use config::Config;
 pub use cron::{CronJob, CronPayload, CronSchedule, CronService};
 pub use error::{PicoError, Result};
+pub use heartbeat::{ensure_heartbeat_file, HeartbeatService, HEARTBEAT_PROMPT};
 pub use providers::{
     ChatOptions, ClaudeProvider, LLMProvider, LLMResponse, LLMToolCall, OpenAIProvider,
     ToolDefinition, Usage,
@@ -36,6 +39,6 @@ pub use security::{
 };
 pub use session::{Message, Role, Session, SessionManager, ToolCall};
 pub use tools::{
-    cron::CronTool, spawn::SpawnTool, EchoTool, MessageTool, Tool, ToolContext, ToolRegistry,
-    WebFetchTool, WebSearchTool,
+    cron::CronTool, spawn::SpawnTool, EchoTool, GoogleSheetsTool, MemoryGetTool, MemorySearchTool,
+    MessageTool, Tool, ToolContext, ToolRegistry, WebFetchTool, WebSearchTool, WhatsAppTool,
 };

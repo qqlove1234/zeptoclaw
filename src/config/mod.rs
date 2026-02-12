@@ -95,6 +95,15 @@ impl Config {
         // Channel overrides
         self.apply_channel_env_overrides();
 
+        // Memory-specific overrides
+        self.apply_memory_env_overrides();
+
+        // Heartbeat-specific overrides
+        self.apply_heartbeat_env_overrides();
+
+        // Skills-specific overrides
+        self.apply_skills_env_overrides();
+
         // Tool-specific overrides
         self.apply_tool_env_overrides();
     }
@@ -273,6 +282,154 @@ impl Config {
                 self.tools.web.search.max_results = v.clamp(1, 10);
             }
         }
+
+        // WhatsApp tool configuration
+        if let Ok(val) = std::env::var("ZEPTOCLAW_TOOLS_WHATSAPP_PHONE_NUMBER_ID") {
+            self.tools.whatsapp.phone_number_id = Some(val);
+        } else if let Ok(val) = std::env::var("ZEPTOCLAW_INTEGRATIONS_WHATSAPP_PHONE_NUMBER_ID") {
+            self.tools.whatsapp.phone_number_id = Some(val);
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_TOOLS_WHATSAPP_ACCESS_TOKEN") {
+            self.tools.whatsapp.access_token = Some(val);
+        } else if let Ok(val) = std::env::var("ZEPTOCLAW_INTEGRATIONS_WHATSAPP_ACCESS_TOKEN") {
+            self.tools.whatsapp.access_token = Some(val);
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_TOOLS_WHATSAPP_DEFAULT_LANGUAGE") {
+            if !val.trim().is_empty() {
+                self.tools.whatsapp.default_language = val;
+            }
+        }
+
+        // Google Sheets tool configuration
+        if let Ok(val) = std::env::var("ZEPTOCLAW_TOOLS_GOOGLE_SHEETS_ACCESS_TOKEN") {
+            self.tools.google_sheets.access_token = Some(val);
+        } else if let Ok(val) = std::env::var("ZEPTOCLAW_INTEGRATIONS_GOOGLE_SHEETS_ACCESS_TOKEN") {
+            self.tools.google_sheets.access_token = Some(val);
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_TOOLS_GOOGLE_SHEETS_SERVICE_ACCOUNT_BASE64") {
+            self.tools.google_sheets.service_account_base64 = Some(val);
+        } else if let Ok(val) =
+            std::env::var("ZEPTOCLAW_INTEGRATIONS_GOOGLE_SHEETS_SERVICE_ACCOUNT_BASE64")
+        {
+            self.tools.google_sheets.service_account_base64 = Some(val);
+        }
+    }
+
+    /// Apply memory-specific environment variable overrides.
+    fn apply_memory_env_overrides(&mut self) {
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_BACKEND") {
+            let normalized = val.trim().to_ascii_lowercase();
+            if let Some(parsed) = match normalized.as_str() {
+                "none" | "disabled" => Some(MemoryBackend::Disabled),
+                "builtin" => Some(MemoryBackend::Builtin),
+                "qmd" => Some(MemoryBackend::Qmd),
+                _ => None,
+            } {
+                self.memory.backend = parsed;
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_CITATIONS") {
+            let normalized = val.trim().to_ascii_lowercase();
+            if let Some(parsed) = match normalized.as_str() {
+                "on" | "true" => Some(MemoryCitationsMode::On),
+                "off" | "false" => Some(MemoryCitationsMode::Off),
+                "auto" => Some(MemoryCitationsMode::Auto),
+                _ => None,
+            } {
+                self.memory.citations = parsed;
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_MAX_RESULTS") {
+            if let Ok(v) = val.parse::<u32>() {
+                self.memory.max_results = v.clamp(1, 50);
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_MIN_SCORE") {
+            if let Ok(v) = val.parse::<f32>() {
+                self.memory.min_score = v.clamp(0.0, 1.0);
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_MAX_SNIPPET_CHARS") {
+            if let Ok(v) = val.parse::<u32>() {
+                self.memory.max_snippet_chars = v.clamp(64, 10_000);
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_INCLUDE_DEFAULT_MEMORY") {
+            if let Ok(v) = val.parse::<bool>() {
+                self.memory.include_default_memory = v;
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_EXTRA_PATHS") {
+            self.memory.extra_paths = val
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect();
+        }
+    }
+
+    /// Apply heartbeat-specific environment variable overrides.
+    fn apply_heartbeat_env_overrides(&mut self) {
+        if let Ok(val) = std::env::var("ZEPTOCLAW_HEARTBEAT_ENABLED") {
+            if let Ok(v) = val.parse::<bool>() {
+                self.heartbeat.enabled = v;
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_HEARTBEAT_INTERVAL_SECS") {
+            if let Ok(v) = val.parse::<u64>() {
+                self.heartbeat.interval_secs = v.clamp(30, 24 * 60 * 60);
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_HEARTBEAT_FILE_PATH") {
+            if !val.trim().is_empty() {
+                self.heartbeat.file_path = Some(val);
+            }
+        }
+    }
+
+    /// Apply skills-specific environment variable overrides.
+    fn apply_skills_env_overrides(&mut self) {
+        if let Ok(val) = std::env::var("ZEPTOCLAW_SKILLS_ENABLED") {
+            if let Ok(v) = val.parse::<bool>() {
+                self.skills.enabled = v;
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_SKILLS_WORKSPACE_DIR") {
+            if !val.trim().is_empty() {
+                self.skills.workspace_dir = Some(val);
+            }
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_SKILLS_ALWAYS_LOAD") {
+            self.skills.always_load = val
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect();
+        }
+
+        if let Ok(val) = std::env::var("ZEPTOCLAW_SKILLS_DISABLED") {
+            self.skills.disabled = val
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_string)
+                .collect();
+        }
     }
 
     /// Save configuration to the default path
@@ -447,6 +604,13 @@ mod tests {
         assert_eq!(config.agents.defaults.workspace, "~/.zeptoclaw/workspace");
         assert_eq!(config.gateway.host, "0.0.0.0");
         assert_eq!(config.gateway.port, 8080);
+        assert_eq!(config.memory.backend, MemoryBackend::Builtin);
+        assert_eq!(config.memory.citations, MemoryCitationsMode::Auto);
+        assert_eq!(config.memory.max_results, 6);
+        assert_eq!(config.memory.min_score, 0.2);
+        assert!(!config.heartbeat.enabled);
+        assert_eq!(config.heartbeat.interval_secs, 30 * 60);
+        assert!(config.skills.enabled);
         assert_eq!(config.runtime.runtime_type, RuntimeType::Native);
         assert!(!config.runtime.allow_fallback_to_native);
     }
@@ -609,6 +773,21 @@ mod tests {
         env::set_var("ZEPTOCLAW_AGENTS_DEFAULTS_MAX_TOKENS", "1000");
         env::set_var("BRAVE_API_KEY", "test-brave-key");
         env::set_var("ZEPTOCLAW_TOOLS_WEB_SEARCH_MAX_RESULTS", "9");
+        env::set_var("ZEPTOCLAW_MEMORY_BACKEND", "none");
+        env::set_var("ZEPTOCLAW_MEMORY_CITATIONS", "on");
+        env::set_var("ZEPTOCLAW_MEMORY_MAX_RESULTS", "12");
+        env::set_var("ZEPTOCLAW_MEMORY_MIN_SCORE", "0.55");
+        env::set_var("ZEPTOCLAW_MEMORY_INCLUDE_DEFAULT_MEMORY", "false");
+        env::set_var("ZEPTOCLAW_MEMORY_EXTRA_PATHS", "notes,archives/2026");
+        env::set_var("ZEPTOCLAW_HEARTBEAT_ENABLED", "true");
+        env::set_var("ZEPTOCLAW_HEARTBEAT_INTERVAL_SECS", "900");
+        env::set_var("ZEPTOCLAW_HEARTBEAT_FILE_PATH", "/tmp/heartbeat.md");
+        env::set_var("ZEPTOCLAW_SKILLS_ENABLED", "false");
+        env::set_var("ZEPTOCLAW_SKILLS_ALWAYS_LOAD", "github,weather");
+        env::set_var("ZEPTOCLAW_SKILLS_DISABLED", "experimental");
+        env::set_var("ZEPTOCLAW_TOOLS_WHATSAPP_PHONE_NUMBER_ID", "123456");
+        env::set_var("ZEPTOCLAW_TOOLS_WHATSAPP_ACCESS_TOKEN", "wa-token");
+        env::set_var("ZEPTOCLAW_TOOLS_GOOGLE_SHEETS_ACCESS_TOKEN", "gs-token");
 
         let mut config = Config::default();
         config.apply_env_overrides();
@@ -620,12 +799,84 @@ mod tests {
             Some("test-brave-key".to_string())
         );
         assert_eq!(config.tools.web.search.max_results, 9);
+        assert_eq!(config.memory.backend, MemoryBackend::Disabled);
+        assert_eq!(config.memory.citations, MemoryCitationsMode::On);
+        assert_eq!(config.memory.max_results, 12);
+        assert_eq!(config.memory.min_score, 0.55);
+        assert!(!config.memory.include_default_memory);
+        assert_eq!(
+            config.memory.extra_paths,
+            vec!["notes".to_string(), "archives/2026".to_string()]
+        );
+        assert!(config.heartbeat.enabled);
+        assert_eq!(config.heartbeat.interval_secs, 900);
+        assert_eq!(
+            config.heartbeat.file_path,
+            Some("/tmp/heartbeat.md".to_string())
+        );
+        assert!(!config.skills.enabled);
+        assert_eq!(
+            config.skills.always_load,
+            vec!["github".to_string(), "weather".to_string()]
+        );
+        assert_eq!(config.skills.disabled, vec!["experimental".to_string()]);
+        assert_eq!(
+            config.tools.whatsapp.phone_number_id,
+            Some("123456".to_string())
+        );
+        assert_eq!(
+            config.tools.whatsapp.access_token,
+            Some("wa-token".to_string())
+        );
+        assert_eq!(
+            config.tools.google_sheets.access_token,
+            Some("gs-token".to_string())
+        );
 
         // Clean up
         env::remove_var("ZEPTOCLAW_AGENTS_DEFAULTS_MODEL");
         env::remove_var("ZEPTOCLAW_AGENTS_DEFAULTS_MAX_TOKENS");
         env::remove_var("BRAVE_API_KEY");
         env::remove_var("ZEPTOCLAW_TOOLS_WEB_SEARCH_MAX_RESULTS");
+        env::remove_var("ZEPTOCLAW_MEMORY_BACKEND");
+        env::remove_var("ZEPTOCLAW_MEMORY_CITATIONS");
+        env::remove_var("ZEPTOCLAW_MEMORY_MAX_RESULTS");
+        env::remove_var("ZEPTOCLAW_MEMORY_MIN_SCORE");
+        env::remove_var("ZEPTOCLAW_MEMORY_INCLUDE_DEFAULT_MEMORY");
+        env::remove_var("ZEPTOCLAW_MEMORY_EXTRA_PATHS");
+        env::remove_var("ZEPTOCLAW_HEARTBEAT_ENABLED");
+        env::remove_var("ZEPTOCLAW_HEARTBEAT_INTERVAL_SECS");
+        env::remove_var("ZEPTOCLAW_HEARTBEAT_FILE_PATH");
+        env::remove_var("ZEPTOCLAW_SKILLS_ENABLED");
+        env::remove_var("ZEPTOCLAW_SKILLS_ALWAYS_LOAD");
+        env::remove_var("ZEPTOCLAW_SKILLS_DISABLED");
+        env::remove_var("ZEPTOCLAW_TOOLS_WHATSAPP_PHONE_NUMBER_ID");
+        env::remove_var("ZEPTOCLAW_TOOLS_WHATSAPP_ACCESS_TOKEN");
+        env::remove_var("ZEPTOCLAW_TOOLS_GOOGLE_SHEETS_ACCESS_TOKEN");
+    }
+
+    #[test]
+    fn test_memory_config_from_json() {
+        let json = r#"{
+            "memory": {
+                "backend": "qmd",
+                "citations": "off",
+                "include_default_memory": false,
+                "max_results": 9,
+                "min_score": 0.4,
+                "max_snippet_chars": 320,
+                "extra_paths": ["notes", "memory/archive"]
+            }
+        }"#;
+
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory.backend, MemoryBackend::Qmd);
+        assert_eq!(config.memory.citations, MemoryCitationsMode::Off);
+        assert!(!config.memory.include_default_memory);
+        assert_eq!(config.memory.max_results, 9);
+        assert_eq!(config.memory.min_score, 0.4);
+        assert_eq!(config.memory.max_snippet_chars, 320);
+        assert_eq!(config.memory.extra_paths.len(), 2);
     }
 
     #[test]
@@ -654,6 +905,38 @@ mod tests {
         let config = Config::default();
         assert!(config.tools.web.search.api_key.is_none());
         assert_eq!(config.tools.web.search.max_results, 5);
+        assert!(config.tools.whatsapp.phone_number_id.is_none());
+        assert_eq!(config.tools.whatsapp.default_language, "ms");
+        assert!(config.tools.google_sheets.access_token.is_none());
+    }
+
+    #[test]
+    fn test_heartbeat_and_skills_config_from_json() {
+        let json = r#"{
+            "heartbeat": {
+                "enabled": true,
+                "interval_secs": 600,
+                "file_path": "/tmp/heart.md"
+            },
+            "skills": {
+                "enabled": false,
+                "workspace_dir": "/tmp/skills",
+                "always_load": ["github"],
+                "disabled": ["legacy"]
+            }
+        }"#;
+
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert!(config.heartbeat.enabled);
+        assert_eq!(config.heartbeat.interval_secs, 600);
+        assert_eq!(
+            config.heartbeat.file_path,
+            Some("/tmp/heart.md".to_string())
+        );
+        assert!(!config.skills.enabled);
+        assert_eq!(config.skills.workspace_dir, Some("/tmp/skills".to_string()));
+        assert_eq!(config.skills.always_load, vec!["github".to_string()]);
+        assert_eq!(config.skills.disabled, vec!["legacy".to_string()]);
     }
 
     #[test]
