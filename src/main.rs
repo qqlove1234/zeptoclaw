@@ -15,8 +15,9 @@ use tracing_subscriber::EnvFilter;
 use zeptoclaw::agent::AgentLoop;
 use zeptoclaw::bus::{InboundMessage, MessageBus};
 use zeptoclaw::channels::{ChannelManager, TelegramChannel};
-use zeptoclaw::config::{Config, ProviderConfig};
+use zeptoclaw::config::{Config, ProviderConfig, RuntimeType};
 use zeptoclaw::providers::{ClaudeProvider, OpenAIProvider, RUNTIME_SUPPORTED_PROVIDERS};
+use zeptoclaw::runtime::{available_runtimes, create_runtime, NativeRuntime};
 use zeptoclaw::session::SessionManager;
 use zeptoclaw::tools::filesystem::{EditFileTool, ListDirTool, ReadFileTool, WriteFileTool};
 use zeptoclaw::tools::shell::ShellTool;
@@ -250,6 +251,9 @@ async fn cmd_onboard() -> Result<()> {
         }
     }
 
+    // Configure runtime for shell command isolation
+    configure_runtime(&mut config)?;
+
     // Save config
     config
         .save()
@@ -328,6 +332,59 @@ fn configure_openai(config: &mut Config) -> Result<()> {
     Ok(())
 }
 
+/// Configure runtime for shell command isolation
+fn configure_runtime(config: &mut Config) -> Result<()> {
+    println!();
+    println!("=== Runtime Configuration ===");
+    println!("Choose container runtime for shell command isolation:");
+    println!("  1. Native (no container, uses application-level security)");
+    println!("  2. Docker (requires Docker installed)");
+    #[cfg(target_os = "macos")]
+    println!("  3. Apple Container (macOS 15+ only)");
+    println!();
+
+    loop {
+        print!("Enter choice [1]: ");
+        io::stdout().flush()?;
+
+        let choice = read_line()?.trim().to_string();
+        let choice = if choice.is_empty() { "1" } else { &choice };
+
+        match choice {
+            "1" => {
+                config.runtime.runtime_type = RuntimeType::Native;
+                println!("Configured: Native runtime (no container isolation)");
+                break;
+            }
+            "2" => {
+                config.runtime.runtime_type = RuntimeType::Docker;
+                print!("Docker image [alpine:latest]: ");
+                io::stdout().flush()?;
+                let image = read_line()?.trim().to_string();
+                if !image.is_empty() {
+                    config.runtime.docker.image = image;
+                }
+                println!(
+                    "Configured: Docker runtime with image {}",
+                    config.runtime.docker.image
+                );
+                break;
+            }
+            #[cfg(target_os = "macos")]
+            "3" => {
+                config.runtime.runtime_type = RuntimeType::AppleContainer;
+                println!("Configured: Apple Container runtime");
+                break;
+            }
+            _ => {
+                println!("Invalid choice. Please try again.");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Create and configure an agent with all tools registered
 async fn create_agent(config: Config, bus: Arc<MessageBus>) -> Result<Arc<AgentLoop>> {
     // Create session manager
@@ -339,13 +396,28 @@ async fn create_agent(config: Config, bus: Arc<MessageBus>) -> Result<Arc<AgentL
     // Create agent loop
     let agent = Arc::new(AgentLoop::new(config.clone(), session_manager, bus));
 
+    // Create runtime from config
+    let runtime = match create_runtime(&config.runtime).await {
+        Ok(r) => {
+            info!("Using {} runtime for shell commands", r.name());
+            r
+        }
+        Err(e) => {
+            warn!(
+                "Failed to create configured runtime: {}. Falling back to native.",
+                e
+            );
+            Arc::new(NativeRuntime::new())
+        }
+    };
+
     // Register all tools
     agent.register_tool(Box::new(EchoTool)).await;
     agent.register_tool(Box::new(ReadFileTool)).await;
     agent.register_tool(Box::new(WriteFileTool)).await;
     agent.register_tool(Box::new(ListDirTool)).await;
     agent.register_tool(Box::new(EditFileTool)).await;
-    agent.register_tool(Box::new(ShellTool::new())).await;
+    agent.register_tool(Box::new(ShellTool::with_runtime(runtime))).await;
 
     info!("Registered {} tools", agent.tool_count().await);
 
@@ -845,6 +917,14 @@ async fn cmd_status() -> Result<()> {
     println!("-------");
     println!("  Host: {}", config.gateway.host);
     println!("  Port: {}", config.gateway.port);
+    println!();
+
+    // Runtime info
+    println!("Runtime");
+    println!("-------");
+    println!("  Type: {:?}", config.runtime.runtime_type);
+    let available = available_runtimes().await;
+    println!("  Available: {}", available.join(", "));
     println!();
 
     // Provider status
