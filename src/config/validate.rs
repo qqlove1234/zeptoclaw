@@ -5,16 +5,30 @@ use std::collections::HashSet;
 
 /// Known top-level config field names.
 const KNOWN_TOP_LEVEL: &[&str] = &[
-    "agents", "channels", "providers", "gateway", "tools",
-    "memory", "heartbeat", "skills", "runtime", "container_agent",
+    "agents",
+    "channels",
+    "providers",
+    "gateway",
+    "tools",
+    "memory",
+    "heartbeat",
+    "skills",
+    "runtime",
+    "container_agent",
 ];
 
 /// Known fields for each section. Nested as section.field.
 const KNOWN_AGENTS_DEFAULTS: &[&str] = &[
-    "workspace", "model", "max_tokens", "temperature",
-    "max_tool_iterations", "agent_timeout_secs", "message_queue_mode",
+    "workspace",
+    "model",
+    "max_tokens",
+    "temperature",
+    "max_tool_iterations",
+    "agent_timeout_secs",
+    "message_queue_mode",
 ];
 
+#[allow(dead_code)]
 const KNOWN_GATEWAY: &[&str] = &["host", "port"];
 
 /// A validation diagnostic.
@@ -53,8 +67,12 @@ pub fn levenshtein(a: &str, b: &str) -> usize {
     let b_len = b.len();
     let mut matrix = vec![vec![0usize; b_len + 1]; a_len + 1];
 
-    for i in 0..=a_len { matrix[i][0] = i; }
-    for j in 0..=b_len { matrix[0][j] = j; }
+    for (i, row) in matrix.iter_mut().enumerate().take(a_len + 1) {
+        row[0] = i;
+    }
+    for (j, val) in matrix[0].iter_mut().enumerate().take(b_len + 1) {
+        *val = j;
+    }
 
     for (i, ca) in a.chars().enumerate() {
         for (j, cb) in b.chars().enumerate() {
@@ -107,8 +125,7 @@ pub fn validate_config(raw: &Value) -> Vec<Diagnostic> {
     for key in obj.keys() {
         if !known_set.contains(key.as_str()) {
             has_unknown = true;
-            let suggestion = suggest_field(key, KNOWN_TOP_LEVEL)
-                .unwrap_or_default();
+            let suggestion = suggest_field(key, KNOWN_TOP_LEVEL).unwrap_or_default();
             let msg = if suggestion.is_empty() {
                 format!("Unknown field '{}'", key)
             } else {
@@ -129,8 +146,7 @@ pub fn validate_config(raw: &Value) -> Vec<Diagnostic> {
             for key in defaults.keys() {
                 if !known_set.contains(key.as_str()) {
                     has_unknown = true;
-                    let suggestion = suggest_field(key, KNOWN_AGENTS_DEFAULTS)
-                        .unwrap_or_default();
+                    let suggestion = suggest_field(key, KNOWN_AGENTS_DEFAULTS).unwrap_or_default();
                     let msg = if suggestion.is_empty() {
                         format!("Unknown field '{}'", key)
                     } else {

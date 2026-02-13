@@ -4,8 +4,8 @@
 //! results before feeding them back to the LLM. This saves tokens
 //! without losing meaningful information.
 
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// Default maximum result size in bytes (50 KB).
 pub const DEFAULT_MAX_RESULT_BYTES: usize = 51_200;
@@ -13,13 +13,11 @@ pub const DEFAULT_MAX_RESULT_BYTES: usize = 51_200;
 /// Minimum length of a contiguous hex string to be stripped.
 const MIN_HEX_BLOB_LEN: usize = 200;
 
-static BASE64_URI_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"data:[a-zA-Z0-9/+\-\.]+;base64,[A-Za-z0-9+/=]+").unwrap()
-});
+static BASE64_URI_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"data:[a-zA-Z0-9/+\-\.]+;base64,[A-Za-z0-9+/=]+").unwrap());
 
-static HEX_BLOB_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(r"[0-9a-fA-F]{{{},}}", MIN_HEX_BLOB_LEN)).unwrap()
-});
+static HEX_BLOB_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(&format!(r"[0-9a-fA-F]{{{},}}", MIN_HEX_BLOB_LEN)).unwrap());
 
 /// Sanitize a tool result string.
 ///
