@@ -1060,3 +1060,110 @@ fn test_agent_request_validation_rejects_mismatched_session_key() {
 
     assert!(request.validate().is_err());
 }
+
+// ============================================================================
+// DelegateTool Integration Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_delegate_tool_recursion_blocking() {
+    use zeptoclaw::providers::ClaudeProvider;
+    use zeptoclaw::tools::delegate::DelegateTool;
+
+    let config = Config::default();
+    let bus = Arc::new(MessageBus::new());
+    let provider: Arc<dyn zeptoclaw::providers::LLMProvider> =
+        Arc::new(ClaudeProvider::new("fake-key"));
+
+    let tool = DelegateTool::new(config, provider, bus);
+
+    // Should block when called from delegate context (recursion prevention)
+    let ctx = ToolContext::new().with_channel("delegate", "sub-1");
+    let result = tool
+        .execute(
+            serde_json::json!({"role": "Test", "task": "hello"}),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("recursion"));
+}
+
+#[tokio::test]
+async fn test_delegate_tool_disabled_config() {
+    use zeptoclaw::providers::ClaudeProvider;
+    use zeptoclaw::tools::delegate::DelegateTool;
+
+    let mut config = Config::default();
+    config.swarm.enabled = false;
+    let bus = Arc::new(MessageBus::new());
+    let provider: Arc<dyn zeptoclaw::providers::LLMProvider> =
+        Arc::new(ClaudeProvider::new("fake-key"));
+
+    let tool = DelegateTool::new(config, provider, bus);
+    let ctx = ToolContext::new().with_channel("telegram", "chat-1");
+    let result = tool
+        .execute(
+            serde_json::json!({"role": "Test", "task": "hello"}),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("disabled"));
+}
+
+#[tokio::test]
+async fn test_delegate_tool_missing_args() {
+    use zeptoclaw::providers::ClaudeProvider;
+    use zeptoclaw::tools::delegate::DelegateTool;
+
+    let config = Config::default();
+    let bus = Arc::new(MessageBus::new());
+    let provider: Arc<dyn zeptoclaw::providers::LLMProvider> =
+        Arc::new(ClaudeProvider::new("fake-key"));
+
+    let tool = DelegateTool::new(config, provider, bus);
+    let ctx = ToolContext::new().with_channel("telegram", "chat-1");
+
+    // Missing role
+    let result = tool
+        .execute(serde_json::json!({"task": "hello"}), &ctx)
+        .await;
+    assert!(result.is_err());
+
+    // Missing task
+    let result = tool
+        .execute(serde_json::json!({"role": "Test"}), &ctx)
+        .await;
+    assert!(result.is_err());
+
+    // Both missing
+    let result = tool.execute(serde_json::json!({}), &ctx).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_delegate_tool_in_registry() {
+    use zeptoclaw::providers::ClaudeProvider;
+    use zeptoclaw::tools::delegate::DelegateTool;
+
+    let config = Config::default();
+    let bus = Arc::new(MessageBus::new());
+    let provider: Arc<dyn zeptoclaw::providers::LLMProvider> =
+        Arc::new(ClaudeProvider::new("fake-key"));
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(DelegateTool::new(config, provider, bus)));
+
+    assert!(registry.has("delegate"));
+    let defs = registry.definitions();
+    let delegate_def = defs.iter().find(|d| d.name == "delegate");
+    assert!(delegate_def.is_some());
+    assert!(delegate_def.unwrap().description.contains("specialist"));
+}
