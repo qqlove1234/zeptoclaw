@@ -181,6 +181,35 @@ You can override the version and environment labels:
 ZEPTOCLAW_VERSION=0.2.0 ZEPTOCLAW_ENV=staging ./scripts/generate-compose.sh > docker-compose.multi-tenant.yml
 ```
 
+## Swarm Configuration
+
+Each tenant can enable agent swarm delegation, allowing the lead agent to spawn specialist sub-agents with role-specific system prompts and tool whitelists:
+
+```json
+{
+  "swarm": {
+    "enabled": true,
+    "max_depth": 1,
+    "max_concurrent": 3,
+    "roles": {
+      "researcher": {
+        "system_prompt": "You are a research specialist. Find information thoroughly.",
+        "tools": ["web_search", "web_fetch", "memory_search"]
+      },
+      "writer": {
+        "system_prompt": "You are a writing specialist. Draft clear, concise content.",
+        "tools": ["read_file", "write_file", "edit_file"]
+      }
+    }
+  }
+}
+```
+
+- `enabled` — Toggle delegation on/off (default: true)
+- `max_depth` — Maximum delegation depth; 1 means sub-agents cannot delegate further (default: 1)
+- `max_concurrent` — Reserved for future parallel delegation (default: 3)
+- `roles` — Pre-defined role presets; if a role has an empty `tools` list, the sub-agent gets all tools except `delegate` and `spawn`
+
 ## Security Notes
 
 - Config files are mounted read-only (`:ro`) - the agent cannot modify its own credentials

@@ -84,6 +84,12 @@ config = {
     },
     "skills": {
         "enabled": True
+    },
+    "swarm": {
+        "enabled": True,
+        "max_depth": 1,
+        "max_concurrent": 3,
+        "roles": {}
     }
 }
 
