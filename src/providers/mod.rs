@@ -35,4 +35,4 @@ pub use registry::{
     configured_provider_names, configured_unsupported_provider_names, resolve_runtime_provider,
     ProviderSpec, RuntimeProviderSelection, PROVIDER_REGISTRY,
 };
-pub use types::{ChatOptions, LLMProvider, LLMResponse, LLMToolCall, ToolDefinition, Usage};
+pub use types::{ChatOptions, LLMProvider, LLMResponse, LLMToolCall, StreamEvent, ToolDefinition, Usage};

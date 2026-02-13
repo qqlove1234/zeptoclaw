@@ -6,8 +6,21 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::error::Result;
+use crate::error::{Result, ZeptoError};
 use crate::session::Message;
+
+/// Events emitted during streaming LLM responses.
+#[derive(Debug)]
+pub enum StreamEvent {
+    /// A chunk of text content from the LLM.
+    Delta(String),
+    /// Tool calls detected mid-stream (triggers fallback to non-streaming tool loop).
+    ToolCalls(Vec<LLMToolCall>),
+    /// Stream complete — carries the full assembled content and usage stats.
+    Done { content: String, usage: Option<Usage> },
+    /// Provider error mid-stream.
+    Error(ZeptoError),
+}
 
 /// Definition of a tool that can be called by the LLM.
 ///
@@ -93,6 +106,29 @@ pub trait LLMProvider: Send + Sync {
     /// # Returns
     /// The provider name (e.g., "openai", "anthropic")
     fn name(&self) -> &str;
+
+    /// Send a streaming chat completion request.
+    ///
+    /// Returns an `mpsc::Receiver` that yields `StreamEvent`s.
+    /// The default implementation wraps `chat()` and emits a single `Done` event.
+    /// Providers that support SSE streaming should override this.
+    async fn chat_stream(
+        &self,
+        messages: Vec<Message>,
+        tools: Vec<ToolDefinition>,
+        model: Option<&str>,
+        options: ChatOptions,
+    ) -> Result<tokio::sync::mpsc::Receiver<StreamEvent>> {
+        let response = self.chat(messages, tools, model, options).await?;
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let _ = tx
+            .send(StreamEvent::Done {
+                content: response.content,
+                usage: response.usage,
+            })
+            .await;
+        Ok(rx)
+    }
 }
 
 /// Options for chat completion requests.
@@ -530,5 +566,82 @@ mod tests {
 
         assert_eq!(parsed.name, "search");
         assert_eq!(parsed.description, "Search the web");
+    }
+
+    #[tokio::test]
+    async fn test_stream_event_done_carries_content() {
+        let event = StreamEvent::Done {
+            content: "hello".to_string(),
+            usage: Some(Usage::new(10, 5)),
+        };
+        match event {
+            StreamEvent::Done { content, usage } => {
+                assert_eq!(content, "hello");
+                assert!(usage.is_some());
+            }
+            _ => panic!("Expected Done event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stream_event_delta() {
+        let event = StreamEvent::Delta("chunk".to_string());
+        match event {
+            StreamEvent::Delta(text) => assert_eq!(text, "chunk"),
+            _ => panic!("Expected Delta event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stream_event_tool_calls() {
+        let tc = LLMToolCall::new("call_1", "search", r#"{"q":"rust"}"#);
+        let event = StreamEvent::ToolCalls(vec![tc]);
+        match event {
+            StreamEvent::ToolCalls(calls) => {
+                assert_eq!(calls.len(), 1);
+                assert_eq!(calls[0].name, "search");
+            }
+            _ => panic!("Expected ToolCalls event"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_stream_event_error() {
+        let event = StreamEvent::Error(ZeptoError::Provider("fail".into()));
+        assert!(matches!(event, StreamEvent::Error(_)));
+    }
+
+    #[tokio::test]
+    async fn test_chat_stream_default_impl() {
+        struct FakeProvider;
+
+        #[async_trait]
+        impl LLMProvider for FakeProvider {
+            async fn chat(
+                &self,
+                _messages: Vec<Message>,
+                _tools: Vec<ToolDefinition>,
+                _model: Option<&str>,
+                _options: ChatOptions,
+            ) -> Result<LLMResponse> {
+                Ok(LLMResponse::text("hello from fake"))
+            }
+            fn default_model(&self) -> &str { "fake" }
+            fn name(&self) -> &str { "fake" }
+        }
+
+        let provider = FakeProvider;
+        let mut rx = provider
+            .chat_stream(vec![], vec![], None, ChatOptions::default())
+            .await
+            .unwrap();
+
+        let event = rx.recv().await.unwrap();
+        match event {
+            StreamEvent::Done { content, .. } => {
+                assert_eq!(content, "hello from fake");
+            }
+            _ => panic!("Expected Done event from default chat_stream"),
+        }
     }
 }
