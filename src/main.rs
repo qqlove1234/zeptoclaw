@@ -207,8 +207,8 @@ async fn cmd_config(action: ConfigAction) -> Result<()> {
                 return Ok(());
             }
 
-            let content = std::fs::read_to_string(&config_path)
-                .context("Failed to read config file")?;
+            let content =
+                std::fs::read_to_string(&config_path).context("Failed to read config file")?;
 
             let raw: serde_json::Value = match serde_json::from_str(&content) {
                 Ok(v) => v,

@@ -28,6 +28,9 @@ cargo fmt
 ./target/release/zeptoclaw gateway --containerized docker   # force Docker
 ./target/release/zeptoclaw gateway --containerized apple    # force Apple Container (macOS)
 
+# Validate configuration
+./target/release/zeptoclaw config check
+
 # Heartbeat and skills
 ./target/release/zeptoclaw heartbeat --show
 ./target/release/zeptoclaw skills list
@@ -68,7 +71,7 @@ src/
 │   ├── cron.rs        # Cron job scheduling
 │   ├── spawn.rs       # Background task delegation
 │   └── r8r.rs         # R8r workflow integration
-├── utils/          # Utility functions
+├── utils/          # Utility functions (sanitize tool results)
 ├── error.rs        # Error types (ZeptoError)
 ├── lib.rs          # Library exports
 └── main.rs         # CLI entry point (~1900 lines)
@@ -115,6 +118,8 @@ Environment variables override config:
 - `ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY`
 - `ZEPTOCLAW_PROVIDERS_OPENAI_API_KEY`
 - `ZEPTOCLAW_CHANNELS_TELEGRAM_BOT_TOKEN`
+- `ZEPTOCLAW_AGENTS_DEFAULTS_AGENT_TIMEOUT_SECS` — wall-clock timeout for agent runs (default: 300)
+- `ZEPTOCLAW_AGENTS_DEFAULTS_MESSAGE_QUEUE_MODE` — "collect" (default) or "followup"
 
 ### Compile-time Configuration
 
@@ -134,6 +139,10 @@ cargo build --release
 - **Async-first**: All I/O uses Tokio async runtime
 - **Trait-based abstraction**: `LLMProvider`, `Channel`, `Tool`, `ContainerRuntime`
 - **Arc for shared state**: `Arc<dyn LLMProvider>`, `Arc<dyn ContainerRuntime>`
+- **Parallel tool execution**: `futures::future::join_all` for concurrent tool calls
+- **Tool result sanitization**: Strip base64 URIs, hex blobs, truncate to 50KB before LLM
+- **Agent-level timeout**: Wall-clock timeout wrapping entire agent runs (default 300s)
+- **Message queue modes**: Collect (concatenate) or Followup (replay) for busy sessions
 - **Per-session mutex map**: Prevents concurrent message race conditions
 - **Semaphore concurrency**: Container gateway limits concurrent requests
 - **spawn_blocking**: Wraps sync I/O (memory, filesystem) in async context
@@ -142,13 +151,13 @@ cargo build --release
 ## Testing
 
 ```bash
-# Unit tests (442 tests)
+# Unit tests (471 tests)
 cargo test --lib
 
 # Integration tests (56 tests)
 cargo test --test integration
 
-# All tests (498 total)
+# All tests (527 total)
 cargo test
 
 # Specific test
