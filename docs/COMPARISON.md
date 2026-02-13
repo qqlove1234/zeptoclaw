@@ -67,7 +67,7 @@ groups/*/CLAUDE.md (per-group memory)
 | Telegram | ✅ | ✅ | Via skill |
 | WhatsApp | ❌ | ✅ | ✅ (primary) |
 | Discord | ❌ | ✅ | Via skill |
-| Slack | ❌ | ✅ | Via skill |
+| Slack | ⚠️ (outbound only) | ✅ | Via skill |
 | Feishu | ❌ | ✅ | ❌ |
 | DingTalk | ❌ | ✅ | ❌ |
 | Email | ❌ | ✅ | ❌ |
@@ -202,7 +202,7 @@ WhatsApp (baileys) → SQLite → Polling Loop → Container (Claude SDK)
 - Type-safe, memory-safe (Rust)
 
 **Weaknesses**
-- Fewer channels (CLI, Telegram only)
+- Fewer channels (CLI, Telegram, Slack outbound)
 - No full agent-level containerization (runtime isolation currently scoped to shell tool execution)
 - No scheduled tasks
 - Runtime provider wiring narrower than config surface

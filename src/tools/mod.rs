@@ -26,6 +26,7 @@
 //! - `MemoryGetTool`: Read memory files with line windows
 //! - `WhatsAppTool`: Send WhatsApp Cloud API messages
 //! - `GoogleSheetsTool`: Read and write Google Sheets ranges
+//! - `R8rTool`: Execute r8r workflows for deterministic automation
 //!
 //! # Example
 //!
@@ -57,6 +58,7 @@ pub mod filesystem;
 pub mod gsheets;
 pub mod memory;
 pub mod message;
+pub mod r8r;
 mod registry;
 pub mod shell;
 pub mod spawn;
@@ -67,6 +69,7 @@ pub mod whatsapp;
 pub use gsheets::GoogleSheetsTool;
 pub use memory::{MemoryGetTool, MemorySearchTool};
 pub use message::MessageTool;
+pub use r8r::R8rTool;
 pub use registry::ToolRegistry;
 pub use types::{Tool, ToolContext};
 pub use web::{WebFetchTool, WebSearchTool};

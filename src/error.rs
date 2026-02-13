@@ -8,7 +8,7 @@ use thiserror::Error;
 
 /// The primary error type for ZeptoClaw operations.
 #[derive(Error, Debug)]
-pub enum PicoError {
+pub enum ZeptoError {
     /// Configuration-related errors (invalid config, missing required fields, etc.)
     #[error("Configuration error: {0}")]
     Config(String),
@@ -58,8 +58,11 @@ pub enum PicoError {
     SecurityViolation(String),
 }
 
+/// Backward-compatible alias for older code paths.
+pub type PicoError = ZeptoError;
+
 /// A specialized `Result` type for ZeptoClaw operations.
-pub type Result<T> = std::result::Result<T, PicoError>;
+pub type Result<T> = std::result::Result<T, ZeptoError>;
 
 #[cfg(test)]
 mod tests {
@@ -67,15 +70,15 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = PicoError::Config("missing API key".to_string());
+        let err = ZeptoError::Config("missing API key".to_string());
         assert_eq!(err.to_string(), "Configuration error: missing API key");
     }
 
     #[test]
     fn test_error_from_io() {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
-        let pico_err: PicoError = io_err.into();
-        assert!(matches!(pico_err, PicoError::Io(_)));
+        let zepto_err: ZeptoError = io_err.into();
+        assert!(matches!(zepto_err, ZeptoError::Io(_)));
     }
 
     #[test]
@@ -89,20 +92,20 @@ mod tests {
     #[test]
     fn test_error_variants() {
         // Ensure all variants can be created
-        let _ = PicoError::Config("test".into());
-        let _ = PicoError::Provider("test".into());
-        let _ = PicoError::Channel("test".into());
-        let _ = PicoError::Tool("test".into());
-        let _ = PicoError::Session("test".into());
-        let _ = PicoError::BusClosed;
-        let _ = PicoError::NotFound("test".into());
-        let _ = PicoError::Unauthorized("test".into());
-        let _ = PicoError::SecurityViolation("test".into());
+        let _ = ZeptoError::Config("test".into());
+        let _ = ZeptoError::Provider("test".into());
+        let _ = ZeptoError::Channel("test".into());
+        let _ = ZeptoError::Tool("test".into());
+        let _ = ZeptoError::Session("test".into());
+        let _ = ZeptoError::BusClosed;
+        let _ = ZeptoError::NotFound("test".into());
+        let _ = ZeptoError::Unauthorized("test".into());
+        let _ = ZeptoError::SecurityViolation("test".into());
     }
 
     #[test]
     fn test_security_violation_display() {
-        let err = PicoError::SecurityViolation("path traversal attempt detected".to_string());
+        let err = ZeptoError::SecurityViolation("path traversal attempt detected".to_string());
         assert_eq!(
             err.to_string(),
             "Security violation: path traversal attempt detected"

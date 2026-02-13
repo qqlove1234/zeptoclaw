@@ -118,7 +118,7 @@ impl LLMProvider for MockProvider {
         _tools: Vec<ToolDefinition>,
         _model: Option<&str>,
         _options: ChatOptions,
-    ) -> std::result::Result<LLMResponse, zeptoclaw::error::PicoError> {
+    ) -> std::result::Result<LLMResponse, zeptoclaw::error::ZeptoError> {
         // Find the last user message and echo it back
         let response_text = messages
             .iter()

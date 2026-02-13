@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::bus::{MessageBus, OutboundMessage};
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -59,26 +59,26 @@ impl Tool for MessageTool {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PicoError::Tool("Missing 'content' parameter".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'content' parameter".to_string()))?;
 
         let channel = args
             .get("channel")
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .or_else(|| ctx.channel.clone())
-            .ok_or_else(|| PicoError::Tool("No target channel specified".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("No target channel specified".to_string()))?;
 
         let chat_id = args
             .get("chat_id")
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .or_else(|| ctx.chat_id.clone())
-            .ok_or_else(|| PicoError::Tool("No target chat_id specified".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("No target chat_id specified".to_string()))?;
 
         self.bus
             .publish_outbound(OutboundMessage::new(&channel, &chat_id, content))
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to publish message: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Failed to publish message: {}", e)))?;
 
         Ok(format!("Message sent to {}:{}", channel, chat_id))
     }

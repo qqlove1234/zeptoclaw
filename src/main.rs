@@ -16,7 +16,9 @@ use tracing_subscriber::EnvFilter;
 use zeptoclaw::agent::{AgentLoop, ContextBuilder};
 use zeptoclaw::bus::{InboundMessage, MessageBus};
 use zeptoclaw::channels::{register_configured_channels, ChannelManager};
-use zeptoclaw::config::{Config, MemoryBackend, MemoryCitationsMode, RuntimeType};
+use zeptoclaw::config::{
+    Config, ContainerAgentBackend, MemoryBackend, MemoryCitationsMode, RuntimeType,
+};
 use zeptoclaw::cron::CronService;
 use zeptoclaw::heartbeat::{ensure_heartbeat_file, HeartbeatService, HEARTBEAT_PROMPT};
 use zeptoclaw::providers::{
@@ -54,7 +56,13 @@ enum Commands {
         message: Option<String>,
     },
     /// Start multi-channel gateway
-    Gateway,
+    Gateway {
+        /// Run in container isolation [optional: docker, apple]
+        #[arg(long, num_args = 0..=1, default_missing_value = "auto", value_name = "BACKEND")]
+        containerized: Option<String>,
+    },
+    /// Run agent in stdin/stdout mode (for containerized execution)
+    AgentStdin,
     /// Trigger or inspect heartbeat tasks
     Heartbeat {
         /// Show heartbeat file contents
@@ -131,8 +139,11 @@ async fn main() -> Result<()> {
         Some(Commands::Agent { message }) => {
             cmd_agent(message).await?;
         }
-        Some(Commands::Gateway) => {
-            cmd_gateway().await?;
+        Some(Commands::Gateway { containerized }) => {
+            cmd_gateway(containerized).await?;
+        }
+        Some(Commands::AgentStdin) => {
+            cmd_agent_stdin().await?;
         }
         Some(Commands::Heartbeat { show, edit }) => {
             cmd_heartbeat(show, edit).await?;
@@ -1072,38 +1083,176 @@ async fn cmd_agent(message: Option<String>) -> Result<()> {
     Ok(())
 }
 
+/// Run agent in stdin/stdout mode for containerized execution.
+///
+/// Reads a JSON `AgentRequest` from stdin, processes it through the agent,
+/// and writes a marked `AgentResponse` to stdout.
+async fn cmd_agent_stdin() -> Result<()> {
+    let mut config = Config::load().with_context(|| "Failed to load configuration")?;
+
+    // Read JSON request from stdin
+    let stdin = io::stdin();
+    let mut input = String::new();
+    stdin
+        .lock()
+        .read_line(&mut input)
+        .with_context(|| "Failed to read from stdin")?;
+
+    let request: zeptoclaw::gateway::AgentRequest =
+        serde_json::from_str(&input).map_err(|e| anyhow::anyhow!("Invalid request JSON: {}", e))?;
+    let zeptoclaw::gateway::AgentRequest {
+        request_id,
+        message,
+        agent_config,
+        session,
+    } = request;
+
+    // Apply request-scoped agent defaults.
+    config.agents.defaults = agent_config;
+
+    // Create agent with merged config
+    let bus = Arc::new(MessageBus::new());
+    let agent = create_agent(config, bus.clone()).await?;
+
+    // Seed provided session state before processing.
+    if let Some(ref seed_session) = session {
+        agent.session_manager().save(seed_session).await?;
+    }
+
+    // Process the message
+    let response = match agent.process_message(&message).await {
+        Ok(content) => {
+            let updated_session = agent.session_manager().get(&message.session_key).await?;
+            zeptoclaw::gateway::AgentResponse::success(&request_id, &content, updated_session)
+        }
+        Err(e) => {
+            zeptoclaw::gateway::AgentResponse::error(&request_id, &e.to_string(), "PROCESS_ERROR")
+        }
+    };
+
+    // Write response with markers to stdout
+    println!("{}", response.to_marked_json());
+    io::stdout().flush()?;
+
+    Ok(())
+}
+
 /// Start multi-channel gateway
-async fn cmd_gateway() -> Result<()> {
+async fn cmd_gateway(containerized_flag: Option<String>) -> Result<()> {
     println!("Starting ZeptoClaw Gateway...");
 
     // Load configuration
-    let config = Config::load().with_context(|| "Failed to load configuration")?;
+    let mut config = Config::load().with_context(|| "Failed to load configuration")?;
 
-    // Validate provider before starting services.
-    let runtime_provider_name = resolve_runtime_provider(&config).map(|provider| provider.name);
-    if runtime_provider_name.is_none() {
-        let configured = configured_provider_names(&config);
-        if configured.is_empty() {
-            error!("No AI provider configured. Set ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY");
-            error!("or add your API key to {:?}", Config::path());
-        } else {
-            error!(
-                "Configured provider(s) are not supported by this runtime: {}",
-                configured.join(", ")
-            );
-            error!(
-                "Currently supported runtime providers: {}",
-                RUNTIME_SUPPORTED_PROVIDERS.join(", ")
-            );
+    // --containerized [docker|apple] overrides config backend
+    let containerized = containerized_flag.is_some();
+    if let Some(ref b) = containerized_flag {
+        if b != "auto" {
+            config.container_agent.backend = match b.to_lowercase().as_str() {
+                "docker" => ContainerAgentBackend::Docker,
+                #[cfg(target_os = "macos")]
+                "apple" => ContainerAgentBackend::Apple,
+                "auto" => ContainerAgentBackend::Auto,
+                other => {
+                    #[cfg(target_os = "macos")]
+                    return Err(anyhow::anyhow!(
+                        "Unknown backend '{}'. Use: docker or apple",
+                        other
+                    ));
+                    #[cfg(not(target_os = "macos"))]
+                    return Err(anyhow::anyhow!("Unknown backend '{}'. Use: docker", other));
+                }
+            };
         }
-        std::process::exit(1);
     }
 
     // Create message bus
     let bus = Arc::new(MessageBus::new());
 
-    // Create agent
-    let agent = create_agent(config.clone(), bus.clone()).await?;
+    // Determine agent backend: containerized or in-process
+    let mut proxy = None;
+    let proxy_handle = if containerized {
+        info!("Starting gateway with containerized agent mode");
+
+        // Resolve backend (auto-detect or explicit from config)
+        let backend = zeptoclaw::gateway::resolve_backend(&config.container_agent)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        info!("Resolved container backend: {}", backend);
+
+        // Validate the resolved backend
+        match backend {
+            zeptoclaw::gateway::ResolvedBackend::Docker => {
+                validate_docker_available().await?;
+            }
+            #[cfg(target_os = "macos")]
+            zeptoclaw::gateway::ResolvedBackend::Apple => {
+                validate_apple_available().await?;
+            }
+        }
+
+        // Check image exists (Docker-specific)
+        let image = &config.container_agent.image;
+        if backend == zeptoclaw::gateway::ResolvedBackend::Docker {
+            let image_check = tokio::process::Command::new("docker")
+                .args(["image", "inspect", image])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await;
+
+            if !image_check.map(|s| s.success()).unwrap_or(false) {
+                eprintln!("Warning: Docker image '{}' not found.", image);
+                eprintln!("Build it with: docker build -t {} .", image);
+                return Err(anyhow::anyhow!("Docker image '{}' not found", image));
+            }
+        }
+
+        info!("Using container image: {} (backend={})", image, backend);
+
+        let proxy_instance = Arc::new(zeptoclaw::gateway::ContainerAgentProxy::new(
+            config.clone(),
+            bus.clone(),
+            backend,
+        ));
+        let proxy_for_task = Arc::clone(&proxy_instance);
+        proxy = Some(proxy_instance);
+
+        Some(tokio::spawn(async move {
+            if let Err(e) = proxy_for_task.start().await {
+                error!("Container agent proxy error: {}", e);
+            }
+        }))
+    } else {
+        // Validate provider for in-process mode
+        let runtime_provider_name = resolve_runtime_provider(&config).map(|provider| provider.name);
+        if runtime_provider_name.is_none() {
+            let configured = configured_provider_names(&config);
+            if configured.is_empty() {
+                error!("No AI provider configured. Set ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY");
+                error!("or add your API key to {:?}", Config::path());
+            } else {
+                error!(
+                    "Configured provider(s) are not supported by this runtime: {}",
+                    configured.join(", ")
+                );
+                error!(
+                    "Currently supported runtime providers: {}",
+                    RUNTIME_SUPPORTED_PROVIDERS.join(", ")
+                );
+            }
+            std::process::exit(1);
+        }
+        None
+    };
+
+    // Create in-process agent (only needed when not containerized)
+    let agent = if !containerized {
+        Some(create_agent(config.clone(), bus.clone()).await?)
+    } else {
+        None
+    };
 
     // Create channel manager
     let channel_manager = ChannelManager::new(bus.clone(), config.clone());
@@ -1149,16 +1298,24 @@ async fn cmd_gateway() -> Result<()> {
         None
     };
 
-    // Start agent loop in background
-    let agent_clone = Arc::clone(&agent);
-    let agent_handle = tokio::spawn(async move {
-        if let Err(e) = agent_clone.start().await {
-            error!("Agent loop error: {}", e);
-        }
-    });
+    // Start agent loop in background (only for in-process mode)
+    let agent_handle = if let Some(ref agent) = agent {
+        let agent_clone = Arc::clone(agent);
+        Some(tokio::spawn(async move {
+            if let Err(e) = agent_clone.start().await {
+                error!("Agent loop error: {}", e);
+            }
+        }))
+    } else {
+        None
+    };
 
     println!();
-    println!("Gateway is running. Press Ctrl+C to stop.");
+    if containerized {
+        println!("Gateway is running (containerized mode). Press Ctrl+C to stop.");
+    } else {
+        println!("Gateway is running. Press Ctrl+C to stop.");
+    }
     println!();
 
     // Wait for Ctrl+C
@@ -1173,8 +1330,13 @@ async fn cmd_gateway() -> Result<()> {
         service.stop().await;
     }
 
-    // Stop agent
-    agent.stop();
+    // Stop agent or proxy
+    if let Some(ref agent) = agent {
+        agent.stop();
+    }
+    if let Some(ref proxy) = proxy {
+        proxy.stop();
+    }
 
     // Stop all channels
     channel_manager
@@ -1182,8 +1344,13 @@ async fn cmd_gateway() -> Result<()> {
         .await
         .with_context(|| "Failed to stop channels")?;
 
-    // Wait for agent to stop
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), agent_handle).await;
+    // Wait for agent/proxy to stop
+    if let Some(handle) = agent_handle {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    }
+    if let Some(handle) = proxy_handle {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    }
 
     println!("Gateway stopped.");
     Ok(())
@@ -1528,6 +1695,27 @@ async fn cmd_auth_status() -> Result<()> {
     Ok(())
 }
 
+/// Validate that Docker is available, returning a user-friendly error if not.
+async fn validate_docker_available() -> Result<()> {
+    if !zeptoclaw::gateway::is_docker_available().await {
+        return Err(anyhow::anyhow!(
+            "Docker is not available. Install Docker or run without --containerized."
+        ));
+    }
+    Ok(())
+}
+
+/// Validate that Apple Container is available (macOS only).
+#[cfg(target_os = "macos")]
+async fn validate_apple_available() -> Result<()> {
+    if !zeptoclaw::gateway::is_apple_container_available().await {
+        return Err(anyhow::anyhow!(
+            "Apple Container is not available. Requires macOS 15+ with `container` CLI installed."
+        ));
+    }
+    Ok(())
+}
+
 /// Show system status
 async fn cmd_status() -> Result<()> {
     let config = Config::load().unwrap_or_default();
@@ -1593,6 +1781,25 @@ async fn cmd_status() -> Result<()> {
     println!("-------");
     println!("  Host: {}", config.gateway.host);
     println!("  Port: {}", config.gateway.port);
+    println!();
+
+    // Container Agent
+    println!("Container Agent");
+    println!("---------------");
+    let backend_label = match config.container_agent.backend {
+        ContainerAgentBackend::Auto => "auto",
+        ContainerAgentBackend::Docker => "docker",
+        #[cfg(target_os = "macos")]
+        ContainerAgentBackend::Apple => "apple",
+    };
+    println!("  Backend: {}", backend_label);
+    println!("  Image: {}", config.container_agent.image);
+    if let Some(binary) = config.container_agent.docker_binary.as_deref() {
+        if !binary.trim().is_empty() {
+            println!("  Docker binary override: {}", binary);
+        }
+    }
+    println!("  Timeout: {}s", config.container_agent.timeout_secs);
     println!();
 
     // Runtime info

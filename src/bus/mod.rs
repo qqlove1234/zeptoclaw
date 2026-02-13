@@ -44,7 +44,7 @@ pub mod message;
 
 pub use message::{InboundMessage, MediaAttachment, MediaType, OutboundMessage};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
@@ -118,7 +118,7 @@ impl MessageBus {
     /// * `msg` - The inbound message to publish
     ///
     /// # Errors
-    /// Returns `PicoError::BusClosed` if the receiver has been dropped.
+    /// Returns `ZeptoError::BusClosed` if the receiver has been dropped.
     ///
     /// # Example
     /// ```
@@ -135,7 +135,7 @@ impl MessageBus {
         self.inbound_tx
             .send(msg)
             .await
-            .map_err(|_| PicoError::BusClosed)
+            .map_err(|_| ZeptoError::BusClosed)
     }
 
     /// Consumes the next inbound message from the bus.
@@ -177,7 +177,7 @@ impl MessageBus {
     /// * `msg` - The outbound message to publish
     ///
     /// # Errors
-    /// Returns `PicoError::BusClosed` if the receiver has been dropped.
+    /// Returns `ZeptoError::BusClosed` if the receiver has been dropped.
     ///
     /// # Example
     /// ```
@@ -194,7 +194,7 @@ impl MessageBus {
         self.outbound_tx
             .send(msg)
             .await
-            .map_err(|_| PicoError::BusClosed)
+            .map_err(|_| ZeptoError::BusClosed)
     }
 
     /// Consumes the next outbound message from the bus.
@@ -250,14 +250,14 @@ impl MessageBus {
     ///
     /// # Returns
     /// - `Ok(())` if the message was successfully queued
-    /// - `Err(PicoError::BusClosed)` if the channel is closed
-    /// - `Err(PicoError::Channel)` if the buffer is full
+    /// - `Err(ZeptoError::BusClosed)` if the channel is closed
+    /// - `Err(ZeptoError::Channel)` if the buffer is full
     pub fn try_publish_inbound(&self, msg: InboundMessage) -> Result<()> {
         self.inbound_tx.try_send(msg).map_err(|e| match e {
             mpsc::error::TrySendError::Full(_) => {
-                PicoError::Channel("inbound buffer full".to_string())
+                ZeptoError::Channel("inbound buffer full".to_string())
             }
-            mpsc::error::TrySendError::Closed(_) => PicoError::BusClosed,
+            mpsc::error::TrySendError::Closed(_) => ZeptoError::BusClosed,
         })
     }
 
@@ -265,9 +265,9 @@ impl MessageBus {
     pub fn try_publish_outbound(&self, msg: OutboundMessage) -> Result<()> {
         self.outbound_tx.try_send(msg).map_err(|e| match e {
             mpsc::error::TrySendError::Full(_) => {
-                PicoError::Channel("outbound buffer full".to_string())
+                ZeptoError::Channel("outbound buffer full".to_string())
             }
-            mpsc::error::TrySendError::Closed(_) => PicoError::BusClosed,
+            mpsc::error::TrySendError::Closed(_) => ZeptoError::BusClosed,
         })
     }
 }
@@ -439,7 +439,7 @@ mod tests {
         // Third message should fail with buffer full
         let msg3 = InboundMessage::new("test", "user", "chat", "Msg 3");
         let result = bus.try_publish_inbound(msg3);
-        assert!(matches!(result, Err(PicoError::Channel(_))));
+        assert!(matches!(result, Err(ZeptoError::Channel(_))));
     }
 
     #[tokio::test]
@@ -454,7 +454,7 @@ mod tests {
         // Third message should fail
         let msg3 = OutboundMessage::new("test", "chat", "Msg 3");
         let result = bus.try_publish_outbound(msg3);
-        assert!(matches!(result, Err(PicoError::Channel(_))));
+        assert!(matches!(result, Err(ZeptoError::Channel(_))));
     }
 
     #[tokio::test]

@@ -5,7 +5,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 /// A validated path that is guaranteed to be within the workspace.
 ///
@@ -51,7 +51,7 @@ impl AsRef<Path> for SafePath {
 /// # Returns
 ///
 /// * `Ok(SafePath)` - If the path is valid and within the workspace
-/// * `Err(PicoError::SecurityViolation)` - If the path escapes the workspace
+/// * `Err(ZeptoError::SecurityViolation)` - If the path escapes the workspace
 ///
 /// # Examples
 ///
@@ -69,7 +69,7 @@ impl AsRef<Path> for SafePath {
 pub fn validate_path_in_workspace(path: &str, workspace: &str) -> Result<SafePath> {
     // Check for obvious traversal patterns in the raw input
     if contains_traversal_pattern(path) {
-        return Err(PicoError::SecurityViolation(format!(
+        return Err(ZeptoError::SecurityViolation(format!(
             "Path contains suspicious traversal pattern: {}",
             path
         )));
@@ -100,7 +100,7 @@ pub fn validate_path_in_workspace(path: &str, workspace: &str) -> Result<SafePat
 
     // Check if the normalized path starts with the workspace
     if !normalized_path.starts_with(&canonical_workspace) {
-        return Err(PicoError::SecurityViolation(format!(
+        return Err(ZeptoError::SecurityViolation(format!(
             "Path escapes workspace: {} is not within {}",
             path, workspace
         )));
@@ -146,7 +146,7 @@ fn check_symlink_escape(path: &Path, canonical_workspace: &Path) -> Result<()> {
             if let Ok(canonical) = current.canonicalize() {
                 // Check if the canonical path is still within workspace
                 if !canonical.starts_with(canonical_workspace) {
-                    return Err(PicoError::SecurityViolation(format!(
+                    return Err(ZeptoError::SecurityViolation(format!(
                         "Symlink escape detected: '{}' resolves to '{}' which is outside workspace",
                         current.display(),
                         canonical.display()
@@ -251,7 +251,7 @@ mod tests {
         let result = validate_path_in_workspace("../../../etc/passwd", workspace);
         assert!(result.is_err());
 
-        if let Err(PicoError::SecurityViolation(msg)) = result {
+        if let Err(ZeptoError::SecurityViolation(msg)) = result {
             assert!(msg.contains("traversal pattern") || msg.contains("escapes workspace"));
         } else {
             panic!("Expected SecurityViolation error");
@@ -284,7 +284,7 @@ mod tests {
         let result = validate_path_in_workspace("/etc/passwd", workspace);
         assert!(result.is_err());
 
-        if let Err(PicoError::SecurityViolation(msg)) = result {
+        if let Err(ZeptoError::SecurityViolation(msg)) = result {
             assert!(msg.contains("escapes workspace"));
         } else {
             panic!("Expected SecurityViolation error");
@@ -404,7 +404,7 @@ mod tests {
         let result = validate_path_in_workspace("escape_link/secret.txt", workspace);
         assert!(result.is_err());
 
-        if let Err(PicoError::SecurityViolation(msg)) = result {
+        if let Err(ZeptoError::SecurityViolation(msg)) = result {
             assert!(
                 msg.contains("Symlink escape") || msg.contains("escapes workspace"),
                 "Expected symlink escape error, got: {}",

@@ -95,11 +95,12 @@ tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"] }
 teloxide = { version = "0.12", features = ["macros", "rustls"], default-features = false }
 # Integration helpers
 base64 = "0.22"
+# Temp directory creation for container env files
+tempfile = "3.10"
 
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"
-tempfile = "3.10"
 # Benchmarking framework
 criterion = { version = "0.5", features = ["async_tokio"] }
 

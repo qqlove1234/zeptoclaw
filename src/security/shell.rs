@@ -5,7 +5,7 @@
 
 use regex::Regex;
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 /// Regex patterns that are blocked for security reasons.
 /// These are compiled once and matched against commands.
@@ -129,7 +129,7 @@ impl ShellSecurityConfig {
         // Check regex patterns
         for pattern in &self.compiled_patterns {
             if pattern.is_match(command) {
-                return Err(PicoError::SecurityViolation(format!(
+                return Err(ZeptoError::SecurityViolation(format!(
                     "Command blocked: matches prohibited pattern '{}'",
                     pattern.as_str()
                 )));
@@ -139,7 +139,7 @@ impl ShellSecurityConfig {
         // Check literal patterns
         for literal in &self.literal_patterns {
             if command_lower.contains(literal) {
-                return Err(PicoError::SecurityViolation(format!(
+                return Err(ZeptoError::SecurityViolation(format!(
                     "Command blocked: contains prohibited path '{}'",
                     literal
                 )));

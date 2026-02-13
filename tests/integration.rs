@@ -915,3 +915,132 @@ async fn test_config_runtime_serialization() {
     assert!(parsed.allow_fallback_to_native);
     assert_eq!(parsed.docker.image, "ubuntu:22.04");
 }
+
+// ============================================================================
+// Containerized Agent Integration Tests
+// ============================================================================
+
+#[test]
+fn test_container_agent_config_deserialization() {
+    let json = r#"{
+        "container_agent": {
+            "image": "zeptoclaw:custom",
+            "memory_limit": "2g",
+            "timeout_secs": 600
+        }
+    }"#;
+
+    let config: Config = serde_json::from_str(json).unwrap();
+    assert_eq!(config.container_agent.image, "zeptoclaw:custom");
+    assert_eq!(config.container_agent.memory_limit, Some("2g".to_string()));
+    assert_eq!(config.container_agent.timeout_secs, 600);
+    // Defaults should still be set
+    assert_eq!(config.container_agent.docker_binary, None);
+    assert_eq!(config.container_agent.cpu_limit, Some("2.0".to_string()));
+    assert_eq!(config.container_agent.network, "none");
+    assert!(config.container_agent.extra_mounts.is_empty());
+}
+
+#[test]
+fn test_container_agent_config_defaults() {
+    let config = Config::default();
+    assert_eq!(config.container_agent.image, "zeptoclaw:latest");
+    assert_eq!(config.container_agent.memory_limit, Some("1g".to_string()));
+    assert_eq!(config.container_agent.docker_binary, None);
+    assert_eq!(config.container_agent.cpu_limit, Some("2.0".to_string()));
+    assert_eq!(config.container_agent.timeout_secs, 300);
+    assert_eq!(config.container_agent.network, "none");
+}
+
+#[test]
+fn test_ipc_response_markers() {
+    use zeptoclaw::gateway::{parse_marked_response, AgentResponse, AgentResult};
+
+    let response = AgentResponse::success("req-123", "Hello!", None);
+    let marked = response.to_marked_json();
+
+    assert!(marked.contains("<<<AGENT_RESPONSE_START>>>"));
+    assert!(marked.contains("<<<AGENT_RESPONSE_END>>>"));
+
+    let parsed = parse_marked_response(&marked).unwrap();
+    assert_eq!(parsed.request_id, "req-123");
+
+    match parsed.result {
+        AgentResult::Success { content, .. } => {
+            assert_eq!(content, "Hello!");
+        }
+        _ => panic!("Expected Success result"),
+    }
+}
+
+#[test]
+fn test_ipc_error_response_roundtrip() {
+    use zeptoclaw::gateway::{parse_marked_response, AgentResponse, AgentResult};
+
+    let response = AgentResponse::error("req-err", "Timeout exceeded", "TIMEOUT");
+    let marked = response.to_marked_json();
+    let parsed = parse_marked_response(&marked).unwrap();
+
+    assert_eq!(parsed.request_id, "req-err");
+    match parsed.result {
+        AgentResult::Error { message, code } => {
+            assert_eq!(message, "Timeout exceeded");
+            assert_eq!(code, "TIMEOUT");
+        }
+        _ => panic!("Expected Error result"),
+    }
+}
+
+#[test]
+fn test_ipc_parse_with_noisy_stdout() {
+    use zeptoclaw::gateway::{parse_marked_response, AgentResponse};
+
+    let response = AgentResponse::success("noisy-req", "Result", None);
+    let marked = response.to_marked_json();
+    let noisy = format!(
+        "INFO: Loading config...\nDEBUG: Provider ready\n{}\nDEBUG: Shutting down",
+        marked
+    );
+
+    let parsed = parse_marked_response(&noisy).unwrap();
+    assert_eq!(parsed.request_id, "noisy-req");
+}
+
+#[test]
+fn test_ipc_parse_missing_markers_returns_none() {
+    use zeptoclaw::gateway::parse_marked_response;
+
+    assert!(parse_marked_response("no markers here").is_none());
+    assert!(parse_marked_response(
+        "<<<AGENT_RESPONSE_START>>>\n{invalid json\n<<<AGENT_RESPONSE_END>>>"
+    )
+    .is_none());
+}
+
+#[test]
+fn test_container_agent_proxy_creation() {
+    use zeptoclaw::gateway::{ContainerAgentProxy, ResolvedBackend};
+
+    let config = Config::default();
+    let bus = Arc::new(MessageBus::new());
+    let proxy = ContainerAgentProxy::new(config, bus, ResolvedBackend::Docker);
+    assert!(!proxy.is_running());
+}
+
+#[test]
+fn test_agent_request_serialization() {
+    use zeptoclaw::gateway::AgentRequest;
+
+    let request = AgentRequest {
+        request_id: "test-req".to_string(),
+        message: InboundMessage::new("test", "user1", "chat1", "Hello"),
+        agent_config: Config::default().agents.defaults,
+        session: None,
+    };
+
+    let json = serde_json::to_string(&request).unwrap();
+    let parsed: AgentRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed.request_id, "test-req");
+    assert_eq!(parsed.message.content, "Hello");
+    assert_eq!(parsed.message.channel, "test");
+}

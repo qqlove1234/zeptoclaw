@@ -30,7 +30,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::session::{Message, Role, ToolCall};
 
 use super::{ChatOptions, LLMProvider, LLMResponse, LLMToolCall, ToolDefinition, Usage};
@@ -139,13 +139,13 @@ impl LLMProvider for ClaudeProvider {
 
             // Try to parse as Claude error response
             if let Ok(error_response) = serde_json::from_str::<ClaudeErrorResponse>(&error_text) {
-                return Err(PicoError::Provider(format!(
+                return Err(ZeptoError::Provider(format!(
                     "Claude API error ({}): {} - {}",
                     status, error_response.error.r#type, error_response.error.message
                 )));
             }
 
-            return Err(PicoError::Provider(format!(
+            return Err(ZeptoError::Provider(format!(
                 "Claude API error ({}): {}",
                 status, error_text
             )));

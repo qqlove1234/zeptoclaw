@@ -33,7 +33,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tracing::{debug, info};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::session::{Message, Role};
 
 use super::{ChatOptions, LLMProvider, LLMResponse, LLMToolCall, ToolDefinition, Usage};
@@ -468,11 +468,11 @@ impl LLMProvider for OpenAIProvider {
                 .json(&request)
                 .send()
                 .await
-                .map_err(|e| PicoError::Provider(format!("OpenAI request failed: {}", e)))?;
+                .map_err(|e| ZeptoError::Provider(format!("OpenAI request failed: {}", e)))?;
 
             if response.status().is_success() {
                 let openai_response: OpenAIResponse = response.json().await.map_err(|e| {
-                    PicoError::Provider(format!("Failed to parse OpenAI response: {}", e))
+                    ZeptoError::Provider(format!("Failed to parse OpenAI response: {}", e))
                 })?;
 
                 info!("OpenAI response received");
@@ -501,13 +501,13 @@ impl LLMProvider for OpenAIProvider {
 
             // Try to parse as OpenAI error response
             if let Ok(error_response) = serde_json::from_str::<OpenAIErrorResponse>(&error_text) {
-                return Err(PicoError::Provider(format!(
+                return Err(ZeptoError::Provider(format!(
                     "OpenAI API error ({}): {} - {}",
                     status, error_response.error.r#type, error_response.error.message
                 )));
             }
 
-            return Err(PicoError::Provider(format!(
+            return Err(ZeptoError::Provider(format!(
                 "OpenAI API error ({}): {}",
                 status, error_text
             )));

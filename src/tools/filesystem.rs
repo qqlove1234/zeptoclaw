@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::Path;
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::security::validate_path_in_workspace;
 
 use super::{Tool, ToolContext};
@@ -77,13 +77,13 @@ impl Tool for ReadFileTool {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'path' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'path' argument".into()))?;
 
         let full_path = resolve_path(path, ctx)?;
 
         tokio::fs::read_to_string(&full_path)
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to read file '{}': {}", full_path, e)))
+            .map_err(|e| ZeptoError::Tool(format!("Failed to read file '{}': {}", full_path, e)))
     }
 }
 
@@ -141,12 +141,12 @@ impl Tool for WriteFileTool {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'path' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'path' argument".into()))?;
 
         let content = args
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'content' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'content' argument".into()))?;
 
         let full_path = resolve_path(path, ctx)?;
 
@@ -154,14 +154,14 @@ impl Tool for WriteFileTool {
         if let Some(parent) = Path::new(&full_path).parent() {
             if !parent.as_os_str().is_empty() {
                 tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                    PicoError::Tool(format!("Failed to create parent directories: {}", e))
+                    ZeptoError::Tool(format!("Failed to create parent directories: {}", e))
                 })?;
             }
         }
 
-        tokio::fs::write(&full_path, content)
-            .await
-            .map_err(|e| PicoError::Tool(format!("Failed to write file '{}': {}", full_path, e)))?;
+        tokio::fs::write(&full_path, content).await.map_err(|e| {
+            ZeptoError::Tool(format!("Failed to write file '{}': {}", full_path, e))
+        })?;
 
         Ok(format!(
             "Successfully wrote {} bytes to {}",
@@ -219,12 +219,12 @@ impl Tool for ListDirTool {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'path' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'path' argument".into()))?;
 
         let full_path = resolve_path(path, ctx)?;
 
         let mut entries = tokio::fs::read_dir(&full_path).await.map_err(|e| {
-            PicoError::Tool(format!("Failed to read directory '{}': {}", full_path, e))
+            ZeptoError::Tool(format!("Failed to read directory '{}': {}", full_path, e))
         })?;
 
         let mut items = Vec::new();
@@ -232,7 +232,7 @@ impl Tool for ListDirTool {
         while let Some(entry) = entries
             .next_entry()
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to read directory entry: {}", e)))?
+            .map_err(|e| ZeptoError::Tool(format!("Failed to read directory entry: {}", e)))?
         {
             let file_name = entry.file_name().to_string_lossy().to_string();
             let file_type = entry.file_type().await.ok();
@@ -314,28 +314,28 @@ impl Tool for EditFileTool {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'path' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'path' argument".into()))?;
 
         let old_text = args
             .get("old_text")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'old_text' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'old_text' argument".into()))?;
 
         let new_text = args
             .get("new_text")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'new_text' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'new_text' argument".into()))?;
 
         let full_path = resolve_path(path, ctx)?;
 
         // Read the current content
         let content = tokio::fs::read_to_string(&full_path)
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to read file '{}': {}", full_path, e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Failed to read file '{}': {}", full_path, e)))?;
 
         // Check if old_text exists in the file
         if !content.contains(old_text) {
-            return Err(PicoError::Tool(format!(
+            return Err(ZeptoError::Tool(format!(
                 "Text '{}' not found in file '{}'",
                 if old_text.len() > 50 {
                     format!("{}...", &old_text[..50])
@@ -352,7 +352,9 @@ impl Tool for EditFileTool {
         // Write back
         tokio::fs::write(&full_path, &new_content)
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to write file '{}': {}", full_path, e)))?;
+            .map_err(|e| {
+                ZeptoError::Tool(format!("Failed to write file '{}': {}", full_path, e))
+            })?;
 
         let replacements = content.matches(old_text).count();
         Ok(format!(

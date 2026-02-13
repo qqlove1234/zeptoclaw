@@ -92,6 +92,9 @@ This installs the binary to `~/.local/bin/zeptoclaw`.
 | `zeptoclaw agent -m "..."` | Single message mode |
 | `zeptoclaw agent` | Interactive chat mode |
 | `zeptoclaw gateway` | Start Telegram bot gateway |
+| `zeptoclaw gateway --containerized` | Gateway with container isolation (auto-detect) |
+| `zeptoclaw gateway --containerized docker` | Gateway with Docker isolation |
+| `zeptoclaw gateway --containerized apple` | Gateway with Apple Container (macOS) |
 | `zeptoclaw status` | Show configuration status |
 
 ### Interactive Mode
@@ -176,6 +179,36 @@ Config file location: `~/.zeptoclaw/config.json`
 | Zhipu | `open.bigmodel.cn/api/paas/v4` | GLM models |
 | DeepSeek | `api.deepseek.com` | DeepSeek models |
 | Groq | `api.groq.com/openai/v1` | Fast inference |
+
+### Containerized Mode
+
+Run `--containerized` to isolate each agent request in its own container:
+
+```bash
+# Auto-detect best backend (Apple Container on macOS, else Docker)
+zeptoclaw gateway --containerized
+
+# Force a specific backend
+zeptoclaw gateway --containerized docker
+zeptoclaw gateway --containerized apple   # macOS 15+ only
+```
+
+Requires a container image with ZeptoClaw installed. Build one with:
+
+```bash
+docker build -t zeptoclaw:latest .
+```
+
+Containerized gateway uses stdin/stdout IPC with this request schema:
+
+```json
+{
+  "request_id": "req-123",
+  "message": { "...": "InboundMessage fields" },
+  "agent_config": { "...": "AgentDefaults fields" },
+  "session": { "...": "optional Session state" }
+}
+```
 
 ### Workspace Structure
 

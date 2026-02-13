@@ -6,7 +6,7 @@
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 const DEFAULT_BLOCKED_PATTERNS: &[&str] = &[
     ".ssh",
@@ -58,7 +58,7 @@ fn expand_path(path: &str) -> PathBuf {
 
 fn canonicalize_existing(path: &Path) -> Result<PathBuf> {
     path.canonicalize().map_err(|e| {
-        PicoError::SecurityViolation(format!(
+        ZeptoError::SecurityViolation(format!(
             "Mount path '{}' is invalid or does not exist: {}",
             path.display(),
             e
@@ -81,11 +81,11 @@ fn parse_mount_spec(spec: &str) -> Result<(String, String, bool)> {
         [host, container, mode] if *mode == "ro" => {
             Ok((host.to_string(), container.to_string(), true))
         }
-        [_, _, mode] => Err(PicoError::SecurityViolation(format!(
+        [_, _, mode] => Err(ZeptoError::SecurityViolation(format!(
             "Invalid mount mode '{}'; only 'ro' is supported",
             mode
         ))),
-        _ => Err(PicoError::SecurityViolation(format!(
+        _ => Err(ZeptoError::SecurityViolation(format!(
             "Invalid mount format '{}'; expected 'host:container' or 'host:container:ro'",
             spec
         ))),
@@ -94,14 +94,14 @@ fn parse_mount_spec(spec: &str) -> Result<(String, String, bool)> {
 
 fn load_allowlist(allowlist_path: &Path) -> Result<MountAllowlist> {
     if !allowlist_path.exists() {
-        return Err(PicoError::SecurityViolation(format!(
+        return Err(ZeptoError::SecurityViolation(format!(
             "Mount allowlist not found at '{}'",
             allowlist_path.display()
         )));
     }
 
     let content = std::fs::read_to_string(allowlist_path).map_err(|e| {
-        PicoError::SecurityViolation(format!(
+        ZeptoError::SecurityViolation(format!(
             "Failed to read mount allowlist '{}': {}",
             allowlist_path.display(),
             e
@@ -109,7 +109,7 @@ fn load_allowlist(allowlist_path: &Path) -> Result<MountAllowlist> {
     })?;
 
     serde_json::from_str::<MountAllowlist>(&content).map_err(|e| {
-        PicoError::SecurityViolation(format!(
+        ZeptoError::SecurityViolation(format!(
             "Invalid mount allowlist JSON at '{}': {}",
             allowlist_path.display(),
             e
@@ -137,7 +137,7 @@ pub fn validate_extra_mounts(mounts: &[String], allowlist_path: &str) -> Result<
     let allowlist_path = expand_path(allowlist_path);
     let allowlist = load_allowlist(&allowlist_path)?;
     if allowlist.allowed_roots.is_empty() {
-        return Err(PicoError::SecurityViolation(
+        return Err(ZeptoError::SecurityViolation(
             "Mount allowlist has no allowedRoots entries".to_string(),
         ));
     }
@@ -154,7 +154,7 @@ pub fn validate_extra_mounts(mounts: &[String], allowlist_path: &str) -> Result<
         let (host, container, requested_read_only) = parse_mount_spec(mount)?;
 
         if container.is_empty() || !container.starts_with('/') || container.contains("..") {
-            return Err(PicoError::SecurityViolation(format!(
+            return Err(ZeptoError::SecurityViolation(format!(
                 "Invalid container mount path '{}' in '{}'",
                 container, mount
             )));
@@ -163,7 +163,7 @@ pub fn validate_extra_mounts(mounts: &[String], allowlist_path: &str) -> Result<
         let host_path = canonicalize_existing(&expand_path(&host))?;
 
         if let Some(pattern) = path_contains_blocked_pattern(&host_path, &blocked_patterns) {
-            return Err(PicoError::SecurityViolation(format!(
+            return Err(ZeptoError::SecurityViolation(format!(
                 "Mount '{}' blocked by pattern '{}'",
                 host_path.display(),
                 pattern
@@ -183,7 +183,7 @@ pub fn validate_extra_mounts(mounts: &[String], allowlist_path: &str) -> Result<
             })
             .next()
             .ok_or_else(|| {
-                PicoError::SecurityViolation(format!(
+                ZeptoError::SecurityViolation(format!(
                     "Mount '{}' is outside allowedRoots in '{}'",
                     host_path.display(),
                     allowlist_path.display()

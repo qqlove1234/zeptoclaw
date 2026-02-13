@@ -6,6 +6,7 @@ pub mod channels;
 pub mod config;
 pub mod cron;
 pub mod error;
+pub mod gateway;
 pub mod heartbeat;
 pub mod memory;
 pub mod providers;
@@ -18,10 +19,10 @@ pub mod utils;
 
 pub use agent::{AgentLoop, ContextBuilder};
 pub use bus::{InboundMessage, MediaAttachment, MediaType, MessageBus, OutboundMessage};
-pub use channels::{BaseChannelConfig, Channel, ChannelManager, TelegramChannel};
+pub use channels::{BaseChannelConfig, Channel, ChannelManager, SlackChannel, TelegramChannel};
 pub use config::Config;
 pub use cron::{CronJob, CronPayload, CronSchedule, CronService};
-pub use error::{PicoError, Result};
+pub use error::{PicoError, Result, ZeptoError};
 pub use heartbeat::{ensure_heartbeat_file, HeartbeatService, HEARTBEAT_PROMPT};
 pub use providers::{
     ChatOptions, ClaudeProvider, LLMProvider, LLMResponse, LLMToolCall, OpenAIProvider,
@@ -32,6 +33,15 @@ pub use runtime::{
     DockerRuntime, NativeRuntime, RuntimeError, RuntimeResult,
 };
 
+pub use config::ContainerAgentBackend;
+#[cfg(target_os = "macos")]
+pub use gateway::is_apple_container_available;
+pub use gateway::{
+    generate_env_file_content, is_docker_available, parse_marked_response, resolve_backend,
+    AgentRequest, AgentResponse, AgentResult, ContainerAgentProxy, ResolvedBackend,
+    RESPONSE_END_MARKER, RESPONSE_START_MARKER,
+};
+
 #[cfg(target_os = "macos")]
 pub use runtime::AppleContainerRuntime;
 pub use security::{
@@ -40,5 +50,6 @@ pub use security::{
 pub use session::{Message, Role, Session, SessionManager, ToolCall};
 pub use tools::{
     cron::CronTool, spawn::SpawnTool, EchoTool, GoogleSheetsTool, MemoryGetTool, MemorySearchTool,
-    MessageTool, Tool, ToolContext, ToolRegistry, WebFetchTool, WebSearchTool, WhatsAppTool,
+    MessageTool, R8rTool, Tool, ToolContext, ToolRegistry, WebFetchTool, WebSearchTool,
+    WhatsAppTool,
 };

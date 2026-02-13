@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::config::{MemoryCitationsMode, MemoryConfig};
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::memory::{read_workspace_memory, search_workspace_memory};
 
 use super::{Tool, ToolContext};
@@ -80,10 +80,10 @@ impl Tool for MemorySearchTool {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PicoError::Tool("Missing 'query' parameter".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'query' parameter".to_string()))?;
 
         let workspace = ctx.workspace.as_deref().ok_or_else(|| {
-            PicoError::Tool("Memory tools require a workspace context".to_string())
+            ZeptoError::Tool("Memory tools require a workspace context".to_string())
         })?;
 
         let max_results = args
@@ -168,10 +168,10 @@ impl Tool for MemoryGetTool {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PicoError::Tool("Missing 'path' parameter".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'path' parameter".to_string()))?;
 
         let workspace = ctx.workspace.as_deref().ok_or_else(|| {
-            PicoError::Tool("Memory tools require a workspace context".to_string())
+            ZeptoError::Tool("Memory tools require a workspace context".to_string())
         })?;
 
         let from = args.get("from").and_then(Value::as_u64).map(|v| v as usize);

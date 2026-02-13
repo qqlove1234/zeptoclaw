@@ -9,7 +9,7 @@ use std::time::Instant;
 use serde_json::Value;
 use tracing::{error, info};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::providers::ToolDefinition;
 
 use super::{Tool, ToolContext};
@@ -162,7 +162,7 @@ impl ToolRegistry {
         let tool = self
             .tools
             .get(name)
-            .ok_or_else(|| PicoError::NotFound(format!("Tool not found: {}", name)))?;
+            .ok_or_else(|| ZeptoError::NotFound(format!("Tool not found: {}", name)))?;
 
         let start = Instant::now();
 
@@ -406,7 +406,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, PicoError::NotFound(_)));
+        assert!(matches!(err, ZeptoError::NotFound(_)));
         assert!(err.to_string().contains("Tool not found: nonexistent"));
     }
 

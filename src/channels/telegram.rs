@@ -44,7 +44,7 @@ use tracing::{error, info, warn};
 
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::config::TelegramConfig;
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{BaseChannelConfig, Channel};
 
@@ -138,7 +138,7 @@ impl TelegramChannel {
             .no_proxy()
             .build()
             .map_err(|e| {
-                PicoError::Channel(format!("Failed to build Telegram HTTP client: {}", e))
+                ZeptoError::Channel(format!("Failed to build Telegram HTTP client: {}", e))
             })?;
         Ok(teloxide::Bot::with_client(token.to_string(), client))
     }
@@ -179,7 +179,7 @@ impl Channel for TelegramChannel {
         if self.config.token.is_empty() {
             error!("Telegram bot token is empty");
             self.running.store(false, Ordering::SeqCst);
-            return Err(PicoError::Config("Telegram bot token is empty".into()));
+            return Err(ZeptoError::Config("Telegram bot token is empty".into()));
         }
 
         info!("Starting Telegram channel");
@@ -344,14 +344,14 @@ impl Channel for TelegramChannel {
 
         if !self.running.load(Ordering::SeqCst) {
             warn!("Telegram channel not running, cannot send message");
-            return Err(PicoError::Channel(
+            return Err(ZeptoError::Channel(
                 "Telegram channel not running".to_string(),
             ));
         }
 
         // Parse the chat ID
         let chat_id: i64 = msg.chat_id.parse().map_err(|_| {
-            PicoError::Channel(format!("Invalid Telegram chat ID: {}", msg.chat_id))
+            ZeptoError::Channel(format!("Invalid Telegram chat ID: {}", msg.chat_id))
         })?;
 
         info!("Telegram: Sending message to chat {}", chat_id);
@@ -360,11 +360,11 @@ impl Channel for TelegramChannel {
         let bot = self
             .bot
             .as_ref()
-            .ok_or_else(|| PicoError::Channel("Telegram bot not initialized".to_string()))?;
+            .ok_or_else(|| ZeptoError::Channel("Telegram bot not initialized".to_string()))?;
 
         bot.send_message(ChatId(chat_id), &msg.content)
             .await
-            .map_err(|e| PicoError::Channel(format!("Failed to send Telegram message: {}", e)))?;
+            .map_err(|e| ZeptoError::Channel(format!("Failed to send Telegram message: {}", e)))?;
 
         info!("Telegram: Message sent successfully to chat {}", chat_id);
         Ok(())

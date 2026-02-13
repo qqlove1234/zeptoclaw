@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::config::MemoryConfig;
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::security::validate_path_in_workspace;
 
 const CHUNK_LINES: usize = 18;
@@ -60,7 +60,7 @@ pub fn search_workspace_memory(
 ) -> Result<Vec<MemorySearchResult>> {
     let query = query.trim();
     if query.is_empty() {
-        return Err(PicoError::Tool("Memory query cannot be empty".to_string()));
+        return Err(ZeptoError::Tool("Memory query cannot be empty".to_string()));
     }
 
     let files = collect_memory_files(workspace, config)?;
@@ -157,7 +157,7 @@ pub fn read_workspace_memory(
 ) -> Result<MemoryReadResult> {
     let requested = normalize_rel_path(rel_path);
     if requested.is_empty() {
-        return Err(PicoError::Tool("'path' cannot be empty".to_string()));
+        return Err(ZeptoError::Tool("'path' cannot be empty".to_string()));
     }
 
     let candidates = collect_memory_files(workspace, config)?;
@@ -165,14 +165,14 @@ pub fn read_workspace_memory(
         .into_iter()
         .find(|path| normalize_rel_path(&relative_path(workspace, path)) == requested)
         .ok_or_else(|| {
-            PicoError::Tool(format!(
+            ZeptoError::Tool(format!(
                 "Memory path not found or not allowed: {}",
                 rel_path
             ))
         })?;
 
     let content = fs::read_to_string(&target)
-        .map_err(|e| PicoError::Tool(format!("Failed to read memory file: {}", e)))?;
+        .map_err(|e| ZeptoError::Tool(format!("Failed to read memory file: {}", e)))?;
 
     let all_lines: Vec<&str> = content.lines().collect();
     let total_lines = all_lines.len();

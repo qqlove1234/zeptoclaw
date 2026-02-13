@@ -23,6 +23,11 @@ cargo fmt
 # Run gateway (Telegram bot)
 ./target/release/zeptoclaw gateway
 
+# Run gateway with container isolation
+./target/release/zeptoclaw gateway --containerized          # auto-detect
+./target/release/zeptoclaw gateway --containerized docker   # force Docker
+./target/release/zeptoclaw gateway --containerized apple    # force Apple Container (macOS)
+
 # Onboard (interactive setup)
 ./target/release/zeptoclaw onboard
 ```

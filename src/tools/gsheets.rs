@@ -5,7 +5,7 @@ use base64::Engine;
 use reqwest::Client;
 use serde_json::{json, Value};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -32,15 +32,15 @@ impl GoogleSheetsTool {
     pub fn from_service_account(encoded_json: &str) -> Result<Self> {
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(encoded_json)
-            .map_err(|e| PicoError::Config(format!("Invalid base64 credentials: {}", e)))?;
+            .map_err(|e| ZeptoError::Config(format!("Invalid base64 credentials: {}", e)))?;
         let payload: Value = serde_json::from_slice(&decoded)
-            .map_err(|e| PicoError::Config(format!("Invalid credentials JSON: {}", e)))?;
+            .map_err(|e| ZeptoError::Config(format!("Invalid credentials JSON: {}", e)))?;
         let token = payload
             .get("access_token")
             .and_then(Value::as_str)
             .filter(|token| !token.trim().is_empty())
             .ok_or_else(|| {
-                PicoError::Config(
+                ZeptoError::Config(
                     "Service account payload must include non-empty 'access_token'".to_string(),
                 )
             })?;
@@ -51,13 +51,13 @@ impl GoogleSheetsTool {
         let rows = args
             .get("values")
             .and_then(Value::as_array)
-            .ok_or_else(|| PicoError::Tool("Missing 'values' for write operation".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'values' for write operation".to_string()))?;
 
         let mut parsed = Vec::new();
         for row in rows {
             let row_values = row
                 .as_array()
-                .ok_or_else(|| PicoError::Tool("Each row must be an array".to_string()))?
+                .ok_or_else(|| ZeptoError::Tool("Each row must be an array".to_string()))?
                 .iter()
                 .map(|cell| {
                     cell.as_str()
@@ -82,16 +82,16 @@ impl GoogleSheetsTool {
             .header("Authorization", format!("Bearer {}", self.access_token))
             .send()
             .await
-            .map_err(|e| PicoError::Tool(format!("Google Sheets request failed: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Google Sheets request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| PicoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
 
         if !status.is_success() {
-            return Err(PicoError::Tool(format!(
+            return Err(ZeptoError::Tool(format!(
                 "Google Sheets API error {}: {}",
                 status, body
             )));
@@ -163,7 +163,7 @@ impl GoogleSheetsTool {
             "POST" => self.client.post(endpoint),
             "PUT" => self.client.put(endpoint),
             _ => {
-                return Err(PicoError::Tool(format!(
+                return Err(ZeptoError::Tool(format!(
                     "Unsupported HTTP method for Sheets write: {}",
                     method
                 )))
@@ -176,16 +176,16 @@ impl GoogleSheetsTool {
             .json(&body)
             .send()
             .await
-            .map_err(|e| PicoError::Tool(format!("Google Sheets request failed: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Google Sheets request failed: {}", e)))?;
 
         let status = response.status();
         let payload: Value = response
             .json()
             .await
-            .map_err(|e| PicoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Invalid Sheets response payload: {}", e)))?;
 
         if !status.is_success() {
-            return Err(PicoError::Tool(format!(
+            return Err(ZeptoError::Tool(format!(
                 "Google Sheets API error {}: {}",
                 status, payload
             )));
@@ -252,15 +252,15 @@ impl Tool for GoogleSheetsTool {
         let spreadsheet_id = args
             .get("spreadsheet_id")
             .and_then(Value::as_str)
-            .ok_or_else(|| PicoError::Tool("Missing 'spreadsheet_id'".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'spreadsheet_id'".to_string()))?;
         let action = args
             .get("action")
             .and_then(Value::as_str)
-            .ok_or_else(|| PicoError::Tool("Missing 'action'".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'action'".to_string()))?;
         let range = args
             .get("range")
             .and_then(Value::as_str)
-            .ok_or_else(|| PicoError::Tool("Missing 'range'".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'range'".to_string()))?;
 
         match action {
             "read" => self.execute_read(spreadsheet_id, range).await,
@@ -272,7 +272,7 @@ impl Tool for GoogleSheetsTool {
                 let values = Self::extract_values(&args)?;
                 self.execute_update(spreadsheet_id, range, values).await
             }
-            other => Err(PicoError::Tool(format!("Unknown action '{}'", other))),
+            other => Err(ZeptoError::Tool(format!("Unknown action '{}'", other))),
         }
     }
 }

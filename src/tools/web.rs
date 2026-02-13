@@ -13,7 +13,7 @@ use reqwest::{Client, Url};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -105,7 +105,7 @@ impl Tool for WebSearchTool {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PicoError::Tool("Missing 'query' parameter".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'query' parameter".to_string()))?;
 
         let count = args
             .get("count")
@@ -115,7 +115,7 @@ impl Tool for WebSearchTool {
             .clamp(1, MAX_WEB_SEARCH_COUNT);
 
         if self.api_key.trim().is_empty() {
-            return Err(PicoError::Tool(
+            return Err(ZeptoError::Tool(
                 "Brave Search API key is not configured".to_string(),
             ));
         }
@@ -129,13 +129,13 @@ impl Tool for WebSearchTool {
             .query(&[("q", query), ("count", &count.to_string())])
             .send()
             .await
-            .map_err(|e| PicoError::Tool(format!("Web search request failed: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Web search request failed: {}", e)))?;
 
         if !response.status().is_success() {
             let status = response.status();
             let detail = response.text().await.unwrap_or_default();
             let detail = detail.trim();
-            return Err(PicoError::Tool(if detail.is_empty() {
+            return Err(ZeptoError::Tool(if detail.is_empty() {
                 format!("Brave Search API error: {}", status)
             } else {
                 format!("Brave Search API error: {} ({})", status, detail)
@@ -145,7 +145,7 @@ impl Tool for WebSearchTool {
         let payload: BraveResponse = response
             .json()
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to parse search response: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Failed to parse search response: {}", e)))?;
 
         let results = payload
             .web
@@ -270,22 +270,22 @@ impl Tool for WebFetchTool {
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| PicoError::Tool("Missing 'url' parameter".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'url' parameter".to_string()))?;
 
         let parsed = Url::parse(url)
-            .map_err(|e| PicoError::Tool(format!("Invalid URL '{}': {}", url, e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Invalid URL '{}': {}", url, e)))?;
 
         match parsed.scheme() {
             "http" | "https" => {}
             _ => {
-                return Err(PicoError::Tool(
+                return Err(ZeptoError::Tool(
                     "Only http/https URLs are allowed".to_string(),
                 ));
             }
         }
 
         if is_blocked_host(&parsed) {
-            return Err(PicoError::SecurityViolation(
+            return Err(ZeptoError::SecurityViolation(
                 "Blocked URL host (local or private network)".to_string(),
             ));
         }
@@ -303,13 +303,13 @@ impl Tool for WebFetchTool {
             .header("User-Agent", WEB_USER_AGENT)
             .send()
             .await
-            .map_err(|e| PicoError::Tool(format!("Web fetch failed: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Web fetch failed: {}", e)))?;
 
         let status = response.status();
         let final_url = response.url().to_string();
 
         if !status.is_success() {
-            return Err(PicoError::Tool(format!("HTTP error: {}", status)));
+            return Err(ZeptoError::Tool(format!("HTTP error: {}", status)));
         }
 
         let content_type = response
@@ -322,7 +322,7 @@ impl Tool for WebFetchTool {
         let body = response
             .text()
             .await
-            .map_err(|e| PicoError::Tool(format!("Failed to read response body: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Failed to read response body: {}", e)))?;
 
         let (extractor, mut text) = if content_type.contains("application/json") {
             ("json", body)

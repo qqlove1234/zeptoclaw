@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use crate::bus::MessageBus;
 use crate::config::Config;
 
-use super::{ChannelManager, TelegramChannel};
+use super::{ChannelManager, SlackChannel, TelegramChannel};
 
 /// Register all configured channels that currently have implementations.
 ///
@@ -34,6 +34,20 @@ pub async fn register_configured_channels(
         }
     }
 
+    // Slack
+    if let Some(ref slack_config) = config.channels.slack {
+        if slack_config.enabled {
+            if slack_config.bot_token.is_empty() {
+                warn!("Slack channel enabled but bot token is empty");
+            } else {
+                manager
+                    .register(Box::new(SlackChannel::new(slack_config.clone())))
+                    .await;
+                info!("Registered Slack channel");
+            }
+        }
+    }
+
     // Enabled in config but not implemented in runtime wiring yet.
     if config
         .channels
@@ -43,15 +57,6 @@ pub async fn register_configured_channels(
         .unwrap_or(false)
     {
         warn!("Discord channel is enabled but not implemented");
-    }
-    if config
-        .channels
-        .slack
-        .as_ref()
-        .map(|c| c.enabled)
-        .unwrap_or(false)
-    {
-        warn!("Slack channel is enabled but not implemented");
     }
     if config
         .channels
@@ -106,7 +111,7 @@ pub async fn register_configured_channels(
 mod tests {
     use super::*;
     use crate::bus::MessageBus;
-    use crate::config::{Config, TelegramConfig};
+    use crate::config::{Config, SlackConfig, TelegramConfig};
 
     #[tokio::test]
     async fn test_register_configured_channels_registers_telegram() {
@@ -123,5 +128,23 @@ mod tests {
 
         assert_eq!(count, 1);
         assert!(manager.has_channel("telegram").await);
+    }
+
+    #[tokio::test]
+    async fn test_register_configured_channels_registers_slack() {
+        let bus = Arc::new(MessageBus::new());
+        let mut config = Config::default();
+        config.channels.slack = Some(SlackConfig {
+            enabled: true,
+            bot_token: "xoxb-test-token".to_string(),
+            app_token: String::new(),
+            allow_from: Vec::new(),
+        });
+
+        let manager = ChannelManager::new(bus.clone(), config.clone());
+        let count = register_configured_channels(&manager, bus, &config).await;
+
+        assert_eq!(count, 1);
+        assert!(manager.has_channel("slack").await);
     }
 }

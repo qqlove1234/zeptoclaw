@@ -12,7 +12,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::bus::{InboundMessage, MessageBus};
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -404,7 +404,7 @@ pub fn parse_at_datetime_ms(input: &str) -> Result<i64> {
     if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(input, "%Y-%m-%dT%H:%M:%S") {
         return Ok(naive.and_utc().timestamp_millis());
     }
-    Err(PicoError::Tool(format!(
+    Err(ZeptoError::Tool(format!(
         "Invalid 'at' datetime '{}'. Use RFC3339 or YYYY-MM-DDTHH:MM:SS",
         input
     )))

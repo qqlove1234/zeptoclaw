@@ -7,7 +7,7 @@ mod types;
 
 pub use types::*;
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
 use std::sync::RwLock;
@@ -457,7 +457,7 @@ impl Config {
         let config = Self::load()?;
         CONFIG
             .set(RwLock::new(config))
-            .map_err(|_| PicoError::Config("Configuration already initialized".to_string()))
+            .map_err(|_| ZeptoError::Config("Configuration already initialized".to_string()))
     }
 
     /// Initialize the global configuration with a specific config.
@@ -466,7 +466,7 @@ impl Config {
     pub fn init_with(config: Config) -> Result<()> {
         CONFIG
             .set(RwLock::new(config))
-            .map_err(|_| PicoError::Config("Configuration already initialized".to_string()))
+            .map_err(|_| ZeptoError::Config("Configuration already initialized".to_string()))
     }
 
     /// Get a clone of the current global configuration.
@@ -489,10 +489,10 @@ impl Config {
     {
         let lock = CONFIG
             .get()
-            .ok_or_else(|| PicoError::Config("Configuration not initialized".to_string()))?;
+            .ok_or_else(|| ZeptoError::Config("Configuration not initialized".to_string()))?;
         let mut guard = lock
             .write()
-            .map_err(|_| PicoError::Config("Failed to acquire config write lock".to_string()))?;
+            .map_err(|_| ZeptoError::Config("Failed to acquire config write lock".to_string()))?;
         f(&mut guard);
         Ok(())
     }

@@ -28,6 +28,8 @@ pub struct Config {
     pub skills: SkillsConfig,
     /// Runtime configuration for container isolation
     pub runtime: RuntimeConfig,
+    /// Containerized agent configuration
+    pub container_agent: ContainerAgentConfig,
 }
 
 /// Agent configuration
@@ -610,4 +612,63 @@ pub struct AppleContainerConfig {
     pub image: String,
     /// Additional directory mounts
     pub extra_mounts: Vec<String>,
+}
+
+// ============================================================================
+// Containerized Agent Configuration
+// ============================================================================
+
+/// Container backend for the containerized agent proxy.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerAgentBackend {
+    /// Auto-detect: on macOS try Apple Container first, then Docker.
+    #[default]
+    Auto,
+    /// Always use Docker.
+    Docker,
+    /// Use Apple Container (macOS only).
+    #[cfg(target_os = "macos")]
+    #[serde(rename = "apple")]
+    Apple,
+}
+
+/// Configuration for containerized agent mode.
+///
+/// When running with `--containerized`, the gateway spawns each agent
+/// in an isolated container for multi-user safety.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContainerAgentConfig {
+    /// Container backend to use (auto, docker, apple).
+    pub backend: ContainerAgentBackend,
+    /// Container image for the agent.
+    pub image: String,
+    /// Docker binary path/name override (Docker backend only).
+    pub docker_binary: Option<String>,
+    /// Memory limit (e.g., "1g") — Docker only, ignored by Apple Container.
+    pub memory_limit: Option<String>,
+    /// CPU limit (e.g., "2.0") — Docker only, ignored by Apple Container.
+    pub cpu_limit: Option<String>,
+    /// Request timeout in seconds.
+    pub timeout_secs: u64,
+    /// Network mode (default: "none" for security) — Docker only.
+    pub network: String,
+    /// Extra volume mounts (host:container format).
+    pub extra_mounts: Vec<String>,
+}
+
+impl Default for ContainerAgentConfig {
+    fn default() -> Self {
+        Self {
+            backend: ContainerAgentBackend::Auto,
+            image: "zeptoclaw:latest".to_string(),
+            docker_binary: None,
+            memory_limit: Some("1g".to_string()),
+            cpu_limit: Some("2.0".to_string()),
+            timeout_secs: 300,
+            network: "none".to_string(),
+            extra_mounts: Vec::new(),
+        }
+    }
 }

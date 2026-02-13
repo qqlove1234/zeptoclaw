@@ -11,7 +11,7 @@ use tracing::{debug, error, info};
 
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
 use crate::config::Config;
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::providers::{ChatOptions, LLMProvider};
 use crate::session::{Message, Role, SessionManager, ToolCall};
 use crate::tools::{Tool, ToolContext, ToolRegistry};
@@ -207,7 +207,7 @@ impl AgentLoop {
         let provider = self.provider.read().await;
         let provider = provider
             .as_ref()
-            .ok_or_else(|| PicoError::Provider("No provider configured".into()))?;
+            .ok_or_else(|| ZeptoError::Provider("No provider configured".into()))?;
 
         // Get or create session
         let mut session = self.session_manager.get_or_create(&msg.session_key).await?;
@@ -340,7 +340,7 @@ impl AgentLoop {
     /// ```
     pub async fn start(&self) -> Result<()> {
         if self.running.swap(true, Ordering::SeqCst) {
-            return Err(PicoError::Config("Agent loop already running".into()));
+            return Err(ZeptoError::Config("Agent loop already running".into()));
         }
         info!("Starting agent loop");
 
@@ -503,7 +503,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, PicoError::Provider(_)));
+        assert!(matches!(err, ZeptoError::Provider(_)));
         assert!(err.to_string().contains("No provider configured"));
     }
 

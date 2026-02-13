@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde_json::{json, Value};
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -88,10 +88,10 @@ impl Tool for WhatsAppTool {
         let to = args
             .get("to")
             .and_then(Value::as_str)
-            .ok_or_else(|| PicoError::Tool("Missing 'to' phone number".to_string()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'to' phone number".to_string()))?;
 
         if !to.chars().all(|c| c.is_ascii_digit()) {
-            return Err(PicoError::Tool(
+            return Err(ZeptoError::Tool(
                 "Phone number must contain digits only (country code included)".to_string(),
             ));
         }
@@ -100,7 +100,7 @@ impl Tool for WhatsAppTool {
         let message = args.get("message").and_then(Value::as_str).map(str::trim);
 
         if template.unwrap_or("").is_empty() && message.unwrap_or("").is_empty() {
-            return Err(PicoError::Tool(
+            return Err(ZeptoError::Tool(
                 "Missing 'message' when no template is provided".to_string(),
             ));
         }
@@ -162,13 +162,13 @@ impl Tool for WhatsAppTool {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| PicoError::Tool(format!("WhatsApp request failed: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("WhatsApp request failed: {}", e)))?;
 
         let status = response.status();
         let body: Value = response
             .json()
             .await
-            .map_err(|e| PicoError::Tool(format!("Invalid WhatsApp response payload: {}", e)))?;
+            .map_err(|e| ZeptoError::Tool(format!("Invalid WhatsApp response payload: {}", e)))?;
 
         if !status.is_success() {
             let detail = body
@@ -177,7 +177,7 @@ impl Tool for WhatsAppTool {
                 .and_then(|err| err.get("message"))
                 .and_then(Value::as_str)
                 .unwrap_or("Unknown API error");
-            return Err(PicoError::Tool(format!(
+            return Err(ZeptoError::Tool(format!(
                 "WhatsApp API error {}: {}",
                 status, detail
             )));

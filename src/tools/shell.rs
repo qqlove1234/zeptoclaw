@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 use crate::runtime::{ContainerConfig, ContainerRuntime, NativeRuntime};
 use crate::security::ShellSecurityConfig;
 
@@ -137,7 +137,7 @@ impl Tool for ShellTool {
         let command = args
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'command' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'command' argument".into()))?;
 
         // Security check
         self.security_config.validate_command(command)?;
@@ -160,7 +160,7 @@ impl Tool for ShellTool {
             .runtime
             .execute(command, &container_config)
             .await
-            .map_err(|e| PicoError::Tool(e.to_string()))?;
+            .map_err(|e| ZeptoError::Tool(e.to_string()))?;
 
         Ok(output.format())
     }

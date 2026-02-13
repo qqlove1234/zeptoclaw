@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use crate::cron::{
     is_valid_cron_expr, parse_at_datetime_ms, CronPayload, CronSchedule, CronService,
 };
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -84,13 +84,13 @@ impl Tool for CronTool {
         let action = args
             .get("action")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'action' argument".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'action' argument".into()))?;
 
         match action {
             "add" => self.execute_add(args, ctx).await,
             "list" => self.execute_list(args).await,
             "remove" => self.execute_remove(args).await,
-            other => Err(PicoError::Tool(format!("Unknown cron action '{}'", other))),
+            other => Err(ZeptoError::Tool(format!("Unknown cron action '{}'", other))),
         }
     }
 }
@@ -100,7 +100,7 @@ impl CronTool {
         let message = args
             .get("message")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'message' for cron add".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'message' for cron add".into()))?;
 
         let name = args
             .get("name")
@@ -129,14 +129,14 @@ impl CronTool {
             schedule_count += 1;
         }
         if schedule_count != 1 {
-            return Err(PicoError::Tool(
+            return Err(ZeptoError::Tool(
                 "Specify exactly one of: every_seconds, cron_expr, at".to_string(),
             ));
         }
 
         let (schedule, delete_after_run) = if let Some(seconds) = every_seconds {
             if seconds <= 0 {
-                return Err(PicoError::Tool(
+                return Err(ZeptoError::Tool(
                     "'every_seconds' must be greater than zero".to_string(),
                 ));
             }
@@ -151,7 +151,7 @@ impl CronTool {
                 expr: expr.to_string(),
             };
             if !is_valid_cron_expr(expr) {
-                return Err(PicoError::Tool(format!(
+                return Err(ZeptoError::Tool(format!(
                     "Invalid or non-runnable cron expression '{}'",
                     expr
                 )));
@@ -167,14 +167,14 @@ impl CronTool {
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .or_else(|| ctx.channel.clone())
-            .ok_or_else(|| PicoError::Tool("No channel available in tool context".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("No channel available in tool context".into()))?;
 
         let chat_id = args
             .get("chat_id")
             .and_then(|v| v.as_str())
             .map(str::to_string)
             .or_else(|| ctx.chat_id.clone())
-            .ok_or_else(|| PicoError::Tool("No chat_id available in tool context".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("No chat_id available in tool context".into()))?;
 
         let job = self
             .cron
@@ -223,7 +223,7 @@ impl CronTool {
         let job_id = args
             .get("job_id")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'job_id' for cron remove".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("Missing 'job_id' for cron remove".into()))?;
 
         if self.cron.remove_job(job_id).await? {
             Ok(format!("Removed cron job {}", job_id))

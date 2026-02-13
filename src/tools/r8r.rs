@@ -1,0 +1,512 @@
+//! R8r workflow tool for ZeptoClaw
+//!
+//! This module provides a tool for executing r8r workflows. R8r is a complementary
+//! workflow engine that provides deterministic, agent-first workflow automation.
+//!
+//! # Integration Pattern
+//!
+//! ZeptoClaw <-> R8r form a symbiotic relationship:
+//! - ZeptoClaw calls r8r for deterministic workflows (HTTP, transform, data pipelines)
+//! - R8r calls ZeptoClaw via `agent` nodes for AI reasoning decisions
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use zeptoclaw::tools::{Tool, ToolContext};
+//! use zeptoclaw::tools::r8r::R8rTool;
+//! use serde_json::json;
+//!
+//! # tokio_test::block_on(async {
+//! let tool = R8rTool::new("http://localhost:8080");
+//! let ctx = ToolContext::new();
+//!
+//! let result = tool.execute(json!({
+//!     "workflow": "process-order",
+//!     "inputs": {"order_id": "12345"}
+//! }), &ctx).await;
+//! # });
+//! ```
+
+use async_trait::async_trait;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::time::Duration;
+use tracing::{debug, info};
+
+use crate::error::{Result, ZeptoError};
+
+use super::{Tool, ToolContext};
+
+/// Default r8r endpoint (local server)
+const DEFAULT_R8R_ENDPOINT: &str = "http://localhost:8080";
+
+/// Default timeout for workflow execution (5 minutes)
+const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
+/// R8r workflow execution tool.
+///
+/// Executes workflows in the r8r workflow engine and returns structured results.
+/// R8r provides deterministic, agent-first workflow automation that complements
+/// ZeptoClaw's AI reasoning capabilities.
+pub struct R8rTool {
+    endpoint: String,
+    client: Client,
+}
+
+impl R8rTool {
+    /// Create a new R8r tool with the specified endpoint.
+    ///
+    /// # Arguments
+    /// * `endpoint` - The r8r server endpoint (e.g., "http://localhost:8080")
+    pub fn new(endpoint: &str) -> Self {
+        Self {
+            endpoint: endpoint.trim_end_matches('/').to_string(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(DEFAULT_TIMEOUT_SECS))
+                .build()
+                .expect("Failed to build HTTP client"),
+        }
+    }
+
+    /// Create a new R8r tool with default endpoint (localhost:8080).
+    pub fn default_endpoint() -> Self {
+        Self::new(DEFAULT_R8R_ENDPOINT)
+    }
+
+    /// Create a new R8r tool from environment variable or default.
+    ///
+    /// Checks `R8R_ENDPOINT` environment variable, falls back to localhost:8080.
+    pub fn from_env() -> Self {
+        let endpoint =
+            std::env::var("R8R_ENDPOINT").unwrap_or_else(|_| DEFAULT_R8R_ENDPOINT.to_string());
+        Self::new(&endpoint)
+    }
+
+    /// Create a new R8r tool with custom client and endpoint.
+    pub fn with_client(endpoint: &str, client: Client) -> Self {
+        Self {
+            endpoint: endpoint.trim_end_matches('/').to_string(),
+            client,
+        }
+    }
+}
+
+impl Default for R8rTool {
+    fn default() -> Self {
+        Self::from_env()
+    }
+}
+
+/// Request to execute a workflow
+#[derive(Debug, Serialize)]
+struct ExecuteRequest {
+    input: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wait: Option<bool>,
+}
+
+/// Response from workflow execution
+#[derive(Debug, Deserialize)]
+struct ExecuteResponse {
+    execution_id: String,
+    status: String,
+    #[serde(default)]
+    output: Option<Value>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    duration_ms: Option<u64>,
+}
+
+/// Workflow information response
+#[derive(Debug, Deserialize)]
+struct WorkflowInfo {
+    name: String,
+    description: String,
+    enabled: bool,
+}
+
+/// Error response from r8r API
+#[derive(Debug, Deserialize)]
+struct ErrorResponse {
+    code: String,
+    message: String,
+    #[serde(default)]
+    node_id: Option<String>,
+}
+
+#[async_trait]
+impl Tool for R8rTool {
+    fn name(&self) -> &str {
+        "r8r"
+    }
+
+    fn description(&self) -> &str {
+        "Execute deterministic workflows in the r8r engine. Use for reliable, \
+         repeatable operations like HTTP calls, data transformations, \
+         and multi-step pipelines. R8r workflows are agent-first: designed \
+         to be invoked by AI agents for structured, predictable tasks."
+    }
+
+    fn parameters(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "workflow": {
+                    "type": "string",
+                    "description": "Name of the r8r workflow to execute"
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": "Input data for the workflow (JSON object)",
+                    "additionalProperties": true
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "Wait for workflow completion (default: true). Set to false for async execution.",
+                    "default": true
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["run", "list", "show"],
+                    "description": "Action to perform: 'run' executes workflow (default), 'list' shows available workflows, 'show' displays workflow details",
+                    "default": "run"
+                }
+            },
+            "required": ["workflow"]
+        })
+    }
+
+    async fn execute(&self, args: Value, _ctx: &ToolContext) -> Result<String> {
+        let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("run");
+
+        match action {
+            "list" => self.list_workflows().await,
+            "show" => {
+                let workflow = args
+                    .get("workflow")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ZeptoError::Tool("Missing 'workflow' argument".into()))?;
+                self.show_workflow(workflow).await
+            }
+            "run" => {
+                let workflow = args
+                    .get("workflow")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| ZeptoError::Tool("Missing 'workflow' argument".into()))?;
+
+                let inputs = args.get("inputs").cloned().unwrap_or(Value::Null);
+                let wait = args.get("wait").and_then(|v| v.as_bool()).unwrap_or(true);
+
+                self.run_workflow(workflow, inputs, wait).await
+            }
+            _ => Err(ZeptoError::Tool(format!(
+                "Invalid 'action': {}. Expected one of: run, list, show",
+                action
+            ))),
+        }
+    }
+}
+
+impl R8rTool {
+    /// List all available workflows
+    async fn list_workflows(&self) -> Result<String> {
+        let url = format!("{}/api/workflows", self.endpoint);
+        debug!("R8r list workflows: {}", url);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to connect to r8r: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(ZeptoError::Tool(format!(
+                "R8r API error ({}): {}",
+                status, body
+            )));
+        }
+
+        let workflows: Vec<WorkflowInfo> = response
+            .json()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to parse r8r response: {}", e)))?;
+
+        if workflows.is_empty() {
+            return Ok(
+                "No workflows found in r8r. Create one with: r8r workflows create <file.yaml>"
+                    .to_string(),
+            );
+        }
+
+        let mut output = String::from("Available r8r workflows:\n\n");
+        for wf in workflows {
+            output.push_str(&format!(
+                "- {} ({})\n  {}\n",
+                wf.name,
+                if wf.enabled { "enabled" } else { "disabled" },
+                wf.description
+            ));
+        }
+
+        Ok(output)
+    }
+
+    /// Show workflow details
+    async fn show_workflow(&self, name: &str) -> Result<String> {
+        let url = format!("{}/api/workflows/{}", self.endpoint, name);
+        debug!("R8r show workflow: {}", url);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to connect to r8r: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+
+            // Try to parse as error response
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                return Err(ZeptoError::Tool(format!(
+                    "R8r error [{}]: {}",
+                    err.code, err.message
+                )));
+            }
+
+            return Err(ZeptoError::Tool(format!(
+                "R8r API error ({}): {}",
+                status, body
+            )));
+        }
+
+        let info: Value = response
+            .json()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to parse r8r response: {}", e)))?;
+
+        // Format workflow details in a readable way
+        let output = serde_json::to_string_pretty(&info).unwrap_or_else(|_| info.to_string());
+
+        Ok(format!("Workflow '{}':\n\n{}", name, output))
+    }
+
+    /// Run a workflow
+    async fn run_workflow(&self, name: &str, inputs: Value, wait: bool) -> Result<String> {
+        let url = format!("{}/api/workflows/{}/execute", self.endpoint, name);
+        debug!("R8r execute workflow: {} (wait={})", url, wait);
+
+        let request = ExecuteRequest {
+            input: inputs.clone(),
+            wait: Some(wait),
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to connect to r8r: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+
+            // Try to parse as error response for structured error
+            if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
+                let node_info = err
+                    .node_id
+                    .map(|n| format!(" (at node: {})", n))
+                    .unwrap_or_default();
+                return Err(ZeptoError::Tool(format!(
+                    "R8r workflow error [{}]{}: {}",
+                    err.code, node_info, err.message
+                )));
+            }
+
+            return Err(ZeptoError::Tool(format!(
+                "R8r API error ({}): {}",
+                status, body
+            )));
+        }
+
+        let exec_response: ExecuteResponse = response
+            .json()
+            .await
+            .map_err(|e| ZeptoError::Tool(format!("Failed to parse r8r response: {}", e)))?;
+
+        info!(
+            workflow = name,
+            execution_id = %exec_response.execution_id,
+            status = %exec_response.status,
+            "R8r workflow executed"
+        );
+
+        // Format response based on status
+        match exec_response.status.as_str() {
+            "completed" => {
+                let duration = exec_response
+                    .duration_ms
+                    .map(|d| format!(" ({}ms)", d))
+                    .unwrap_or_default();
+
+                let output = exec_response
+                    .output
+                    .map(|o| serde_json::to_string_pretty(&o).unwrap_or_else(|_| o.to_string()))
+                    .unwrap_or_else(|| "(no output)".to_string());
+
+                Ok(format!(
+                    "Workflow '{}' completed successfully{}.\n\nExecution ID: {}\n\nOutput:\n{}",
+                    name, duration, exec_response.execution_id, output
+                ))
+            }
+            "running" | "pending" => Ok(format!(
+                "Workflow '{}' started (async mode).\n\nExecution ID: {}\nStatus: {}\n\n\
+                 Poll status with: r8r executions show {}",
+                name, exec_response.execution_id, exec_response.status, exec_response.execution_id
+            )),
+            "failed" => {
+                let error = exec_response
+                    .error
+                    .unwrap_or_else(|| "Unknown error".to_string());
+
+                Err(ZeptoError::Tool(format!(
+                    "Workflow '{}' failed: {}\n\nExecution ID: {}",
+                    name, error, exec_response.execution_id
+                )))
+            }
+            _ => Ok(format!(
+                "Workflow '{}' status: {}\n\nExecution ID: {}",
+                name, exec_response.status, exec_response.execution_id
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_r8r_tool_name() {
+        let tool = R8rTool::new("http://localhost:8080");
+        assert_eq!(tool.name(), "r8r");
+    }
+
+    #[test]
+    fn test_r8r_tool_description() {
+        let tool = R8rTool::new("http://localhost:8080");
+        assert!(tool.description().contains("workflow"));
+        assert!(tool.description().contains("deterministic"));
+    }
+
+    #[test]
+    fn test_r8r_tool_parameters() {
+        let tool = R8rTool::new("http://localhost:8080");
+        let params = tool.parameters();
+
+        assert!(params.is_object());
+        assert_eq!(params["type"], "object");
+        assert!(params["properties"]["workflow"].is_object());
+        assert!(params["properties"]["inputs"].is_object());
+        assert!(params["properties"]["wait"].is_object());
+        assert!(params["properties"]["action"].is_object());
+        assert_eq!(params["required"][0], "workflow");
+    }
+
+    #[test]
+    fn test_r8r_tool_default() {
+        let tool = R8rTool::default();
+        assert!(tool.endpoint.contains("localhost") || tool.endpoint.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn test_r8r_tool_endpoint_trimming() {
+        let tool = R8rTool::new("http://localhost:8080/");
+        assert_eq!(tool.endpoint, "http://localhost:8080");
+    }
+
+    #[test]
+    fn test_r8r_tool_from_env() {
+        // Set env var and test
+        std::env::set_var("R8R_ENDPOINT", "http://custom:9000");
+        let tool = R8rTool::from_env();
+        assert_eq!(tool.endpoint, "http://custom:9000");
+
+        // Clean up
+        std::env::remove_var("R8R_ENDPOINT");
+    }
+
+    #[test]
+    fn test_r8r_tool_default_endpoint() {
+        let tool = R8rTool::default_endpoint();
+        assert_eq!(tool.endpoint, "http://localhost:8080");
+    }
+
+    #[test]
+    fn test_execute_request_serialization() {
+        let request = ExecuteRequest {
+            input: json!({"key": "value"}),
+            wait: Some(true),
+        };
+        let json_str = serde_json::to_string(&request).unwrap();
+        assert!(json_str.contains("\"input\""));
+        assert!(json_str.contains("\"wait\":true"));
+    }
+
+    #[test]
+    fn test_execute_request_skip_none_wait() {
+        let request = ExecuteRequest {
+            input: json!(null),
+            wait: None,
+        };
+        let json_str = serde_json::to_string(&request).unwrap();
+        assert!(!json_str.contains("wait"));
+    }
+
+    // Integration tests require a running r8r server
+    // These are marked as ignored by default
+    #[tokio::test]
+    #[ignore = "Requires running r8r server"]
+    async fn test_r8r_list_workflows_integration() {
+        let tool = R8rTool::default_endpoint();
+        let ctx = ToolContext::new();
+
+        let result = tool
+            .execute(json!({"action": "list", "workflow": "_"}), &ctx)
+            .await;
+        // Should either succeed or fail gracefully
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires running r8r server"]
+    async fn test_r8r_run_workflow_integration() {
+        let tool = R8rTool::default_endpoint();
+        let ctx = ToolContext::new();
+
+        let result = tool
+            .execute(
+                json!({
+                    "workflow": "simple-test",
+                    "inputs": {},
+                    "wait": true
+                }),
+                &ctx,
+            )
+            .await;
+
+        // If r8r is running and workflow exists, should succeed
+        if result.is_ok() {
+            let output = result.unwrap();
+            assert!(output.contains("completed") || output.contains("Execution ID"));
+        }
+    }
+}

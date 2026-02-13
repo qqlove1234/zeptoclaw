@@ -8,7 +8,7 @@ use tokio::task;
 
 use crate::agent::AgentLoop;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
-use crate::error::{PicoError, Result};
+use crate::error::{Result, ZeptoError};
 
 use super::{Tool, ToolContext};
 
@@ -56,7 +56,7 @@ impl Tool for SpawnTool {
         let task_text = args
             .get("task")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PicoError::Tool("Missing 'task' argument".into()))?
+            .ok_or_else(|| ZeptoError::Tool("Missing 'task' argument".into()))?
             .to_string();
 
         let label = args
@@ -74,11 +74,11 @@ impl Tool for SpawnTool {
         let channel = ctx
             .channel
             .clone()
-            .ok_or_else(|| PicoError::Tool("No channel available in tool context".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("No channel available in tool context".into()))?;
         let chat_id = ctx
             .chat_id
             .clone()
-            .ok_or_else(|| PicoError::Tool("No chat_id available in tool context".into()))?;
+            .ok_or_else(|| ZeptoError::Tool("No chat_id available in tool context".into()))?;
 
         let task_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let worker_task_id = task_id.clone();
