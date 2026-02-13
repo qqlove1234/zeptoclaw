@@ -2,6 +2,15 @@
 
 > Last updated: 2026-02-14
 
+## Process
+
+After completing any feature, update these 3 files:
+1. **This file** (`docs/plans/TODO.md`) — check off items, update "Last updated" date
+2. **`CLAUDE.md`** — architecture tree, test counts, module docs, CLI flags
+3. **`AGENTS.md`** — "Current State" section, test counts, "Not Yet Wired" list
+
+---
+
 ## Completed
 
 ### Quick Wins (2026-02-13)
