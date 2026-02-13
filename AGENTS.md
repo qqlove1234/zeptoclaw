@@ -6,13 +6,54 @@ Project-level guidance for coding agents working in this repository.
 
 These instructions apply to the entire `rust/` project.
 
+## Post-Implementation Checklist
+
+**After completing ANY feature, you MUST update these files:**
+
+1. **`docs/plans/TODO.md`** — check off completed items, add new backlog items if discovered
+2. **`CLAUDE.md`** — update architecture tree, test counts, module descriptions, new CLI flags
+3. **`AGENTS.md`** (this file) — update "Current State" section below
+
+If you skip this, the next agent starts with stale context and wastes time.
+
 ## Project Snapshot
 
 - Language: Rust (edition 2021)
-- Core binary: `zeptoclaw` (`src/main.rs`)
+- Core binary: `zeptoclaw` (`src/main.rs`, ~2200 lines)
 - Extra binary: `benchmark` (`src/bin/benchmark.rs`)
 - Benchmarks: `benches/message_bus.rs`
 - Integration tests: `tests/integration.rs`
+- Codebase: ~29,600 lines of Rust
+- Tests: ~549 lib + 63 integration + 82 doc = ~694 total
+
+## Current State (2026-02-14)
+
+### Recently Completed
+- Streaming responses — SSE for both Claude and OpenAI providers, `--stream` CLI flag
+- Agent swarm — DelegateTool with recursion blocking, ProviderRef wrapper
+- RetryProvider — exponential backoff on 429/5xx (`src/providers/retry.rs`)
+- FallbackProvider — primary → secondary auto-failover (`src/providers/fallback.rs`)
+- MetricsCollector — per-tool call stats, token tracking (`src/utils/metrics.rs`)
+
+### Not Yet Wired (needs main.rs / config integration)
+- `src/providers/retry.rs` → needs config fields + wiring in provider resolution
+- `src/providers/fallback.rs` → needs multi-provider config + wiring
+- `src/utils/metrics.rs` → needs integration into AgentLoop tool execution
+
+### Roadmap
+See `docs/plans/TODO.md` for the full checklist.
+
+## File Ownership Rules (for parallel agents)
+
+To avoid merge conflicts when multiple agents work simultaneously:
+
+| Zone | Files | Rule |
+|------|-------|------|
+| **Shared (wire last)** | `src/main.rs`, `src/config/types.rs`, `*/mod.rs` | Only ONE agent touches these. Wiring done after all parallel work finishes. |
+| **Provider** | `src/providers/<name>.rs` | One agent per provider file. |
+| **Tool** | `src/tools/<name>.rs` | One agent per tool file. |
+| **Utils** | `src/utils/<name>.rs` | One agent per util file. |
+| **New files** | Any new `*.rs` | Safe — no conflicts if it's a new file. |
 
 ## Required Quality Gates
 
@@ -55,3 +96,29 @@ cargo bench --bench message_bus --no-run
 - Do not revert unrelated local changes.
 - If you detect unexpected file modifications during work, pause and ask before proceeding.
 - Include file/line references when reporting review findings.
+
+## Common Patterns
+
+### Adding a config field
+1. Add field + doc comment to struct in `src/config/types.rs`
+2. Set default in `Default` impl
+3. Add env override in `src/config/mod.rs` if needed
+4. Add field name to `KNOWN_TOP_LEVEL` in `src/config/validate.rs`
+
+### Adding a new tool
+1. Create `src/tools/<name>.rs`
+2. Implement `Tool` trait (`name()`, `description()`, `parameters()`, `execute()`)
+3. Add `pub mod <name>;` in `src/tools/mod.rs`
+4. Register in `create_agent()` in `src/main.rs`
+
+### Adding a provider wrapper
+1. Create `src/providers/<name>.rs`
+2. Implement `LLMProvider` trait (must impl both `chat()` and `chat_stream()`)
+3. Add `pub mod <name>;` + re-export in `src/providers/mod.rs`
+4. Wire in `main.rs` provider resolution
+
+### Key code patterns
+- `ProviderRef` wrapper in `delegate.rs` — converts `Arc<dyn LLMProvider>` to `Box<dyn LLMProvider>`
+- Builder pattern for provider wrappers — `RetryProvider::new(inner).with_max_retries(5)`
+- Interior mutability via `Mutex<HashMap>` — used in MetricsCollector, OpenAIProvider
+- Recursion blocking — check `ctx.channel` to prevent delegate/spawn infinite loops

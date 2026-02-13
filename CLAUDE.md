@@ -20,6 +20,9 @@ cargo fmt
 # Run agent
 ./target/release/zeptoclaw agent -m "Hello"
 
+# Run agent with streaming
+./target/release/zeptoclaw agent -m "Hello" --stream
+
 # Run gateway (Telegram bot)
 ./target/release/zeptoclaw gateway
 
@@ -55,7 +58,7 @@ src/
 ├── gateway/        # Containerized agent proxy (Docker/Apple)
 ├── heartbeat/      # Periodic background task service
 ├── memory/         # Workspace memory (markdown search)
-├── providers/      # LLM providers (Claude, OpenAI)
+├── providers/      # LLM providers (Claude, OpenAI, Retry, Fallback)
 ├── runtime/        # Container runtimes (Native, Docker, Apple)
 ├── security/       # Shell blocklist, path validation, mount policy
 ├── session/        # Session and message persistence
@@ -72,10 +75,13 @@ src/
 │   ├── spawn.rs       # Background task delegation
 │   ├── delegate.rs    # Agent swarm delegation (DelegateTool)
 │   └── r8r.rs         # R8r workflow integration
-├── utils/          # Utility functions (sanitize tool results)
+├── utils/          # Utility functions
+│   ├── sanitize.rs    # Tool result sanitization
+│   └── metrics.rs     # MetricsCollector (not yet wired)
+├── utils/          # Utility functions (sanitize, metrics)
 ├── error.rs        # Error types (ZeptoError)
 ├── lib.rs          # Library exports
-└── main.rs         # CLI entry point (~1900 lines)
+└── main.rs         # CLI entry point (~2200 lines)
 ```
 
 ## Key Modules
@@ -94,8 +100,11 @@ Containerized agent proxy for full request isolation:
 
 ### Providers (`src/providers/`)
 LLM provider abstraction via `LLMProvider` trait:
-- `ClaudeProvider` - Anthropic Claude API (120s timeout)
-- `OpenAIProvider` - OpenAI Chat Completions API (120s timeout)
+- `ClaudeProvider` - Anthropic Claude API (120s timeout, SSE streaming)
+- `OpenAIProvider` - OpenAI Chat Completions API (120s timeout, SSE streaming)
+- `RetryProvider` - Decorator: exponential backoff on 429/5xx (not yet wired)
+- `FallbackProvider` - Decorator: primary → secondary auto-failover (not yet wired)
+- `StreamEvent` enum + `chat_stream()` on LLMProvider trait for token-by-token streaming
 
 ### Channels (`src/channels/`)
 Message input channels via `Channel` trait:
@@ -105,6 +114,10 @@ Message input channels via `Channel` trait:
 
 ### Tools (`src/tools/`)
 14 tools via `Tool` async trait. All filesystem tools require workspace.
+
+### Utils (`src/utils/`)
+- `sanitize.rs` - Tool result sanitization (strip base64, hex, truncate)
+- `metrics.rs` - MetricsCollector: per-tool call stats, token tracking, session summary (not yet wired)
 
 ### Security (`src/security/`)
 - `shell.rs` - Regex-based command blocklist
@@ -152,13 +165,13 @@ cargo build --release
 ## Testing
 
 ```bash
-# Unit tests (483 tests)
+# Unit tests (~549 tests)
 cargo test --lib
 
-# Integration tests (60 tests)
+# Integration tests (~63 tests)
 cargo test --test integration
 
-# All tests (543 total)
+# All tests (~694 total including doc tests)
 cargo test
 
 # Specific test
