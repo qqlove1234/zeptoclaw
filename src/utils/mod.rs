@@ -1,4 +1,6 @@
 //! Utils module - Utility functions and helpers
 
+pub mod cost;
 pub mod metrics;
 pub mod sanitize;
+pub mod telemetry;

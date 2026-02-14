@@ -26,6 +26,7 @@ pub mod fallback;
 pub mod openai;
 mod registry;
 pub mod retry;
+pub mod structured;
 mod types;
 
 /// Provider IDs currently supported by the runtime.
@@ -36,9 +37,10 @@ pub use fallback::FallbackProvider;
 pub use openai::OpenAIProvider;
 pub use registry::{
     configured_provider_names, configured_unsupported_provider_names, resolve_runtime_provider,
-    ProviderSpec, RuntimeProviderSelection, PROVIDER_REGISTRY,
+    resolve_runtime_providers, ProviderSpec, RuntimeProviderSelection, PROVIDER_REGISTRY,
 };
 pub use retry::RetryProvider;
+pub use structured::{validate_json_response, OutputFormat};
 pub use types::{
     ChatOptions, LLMProvider, LLMResponse, LLMToolCall, StreamEvent, ToolDefinition, Usage,
 };

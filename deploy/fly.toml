@@ -1,0 +1,56 @@
+# ZeptoClaw on Fly.io
+#
+# Deploy:
+#   1. Install flyctl:  curl -L https://fly.io/install.sh | sh
+#   2. Login:           fly auth login
+#   3. Launch:          fly launch --no-deploy --dockerfile ../Dockerfile
+#   4. Set secrets:     fly secrets set ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY=sk-ant-...
+#                       fly secrets set ZEPTOCLAW_CHANNELS_TELEGRAM_BOT_TOKEN=...
+#   5. Deploy:          fly deploy --dockerfile ../Dockerfile
+#
+# Regions: https://fly.io/docs/reference/regions/
+# Pricing: Free tier includes 3 shared-cpu-1x VMs
+
+app = "zeptoclaw"
+primary_region = "sin"  # Singapore — change to nearest region
+
+[build]
+  dockerfile = "../Dockerfile"
+
+[env]
+  RUST_LOG = "zeptoclaw=info"
+  RUST_LOG_FORMAT = "json"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    hard_limit = 25
+    soft_limit = 20
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[mounts]
+  source = "zeptoclaw_data"
+  destination = "/data"

@@ -43,8 +43,10 @@ Then came **NanoClaw** — a forkable assistant in ~5,000 lines of TypeScript. T
 
 **ZeptoClaw** is the Rust evolution: memory safety, async performance, and container isolation — built for teams who need security and multi-tenancy without sacrificing simplicity.
 
-| | ~5MB binary | ~50ms startup | ~6MB RAM | 589 tests | 0 crashes |
+| | ~5MB binary | ~50ms startup* | ~6MB RAM* | ~37K LOC | single crate |
 |---|---|---|---|---|---|
+
+\* Measured on Apple Silicon release builds. Exact numbers vary by workload and hardware.
 
 ## Quick Start
 
@@ -59,7 +61,7 @@ cd zeptoclaw && cargo build --release
 # Talk to your agent
 zeptoclaw agent -m "Hello, set up my workspace"
 
-# Start as a Telegram/Slack/WhatsApp bot
+# Start as a Telegram/Slack/Discord/Webhook gateway
 zeptoclaw gateway
 
 # With full container isolation per request
@@ -72,9 +74,11 @@ zeptoclaw gateway --containerized
 
 **16+ Built-in Tools** — Shell, filesystem, web search, web fetch, memory, cron scheduling, spawn, WhatsApp, Google Sheets, and more. Extend with the `Tool` trait in ~50 lines of Rust.
 
-**Container Isolation** — Execute shell commands inside Docker or Apple Container. Falls back to native runtime when containers aren't available. Containerized gateway isolates each request.
+**Configurable Runtime Isolation** — Shell execution supports Native, Docker, or Apple Container runtimes. The containerized gateway isolates each request when `--containerized` is enabled.
 
-**Multi-Channel Gateway** — Chat via Telegram, Slack, WhatsApp, or CLI. Channel factory with per-channel configuration and unified message bus.
+**Multi-Channel Gateway** — Implemented channels: Telegram, Slack, Discord, and Webhook (+ CLI mode). Channel factory with per-channel configuration and unified message bus.
+
+**Hooks (Config + Engine)** — Hook configuration and engine are available for `before_tool`, `after_tool`, and `on_error`. Agent-loop enforcement wiring is in progress.
 
 **Memory & Sessions** — Long-running conversations with context. Persistent memory search and retrieval. Sessions survive restarts.
 
@@ -95,7 +99,7 @@ One vision, four languages. Pick the right tool for the job.
 | **Language** | TypeScript | TypeScript | Go | **Rust** |
 | **Philosophy** | Comprehensive | Hackable | Tiny | **Secure** |
 | **Size** | 52+ modules | ~5K LOC | <10MB RAM | **~5MB binary** |
-| **Channels** | 12 channels | WhatsApp + skills | Telegram, Discord, QQ | **Telegram, Slack, WhatsApp** |
+| **Channels** | 12 channels | WhatsApp + skills | Telegram, Discord, QQ | **Telegram, Slack, Discord, Webhook (+ CLI)** |
 | **Standout** | Voice, Live Canvas | Agent swarms, forkable | $10 hardware, RISC-V | **Container isolation, multi-tenant** |
 | **Best for** | Feature seekers | Developers who read code | Edge & IoT | **Production & enterprise** |
 
@@ -103,7 +107,7 @@ One vision, four languages. Pick the right tool for the job.
 
 | Tool | Description | Config Required |
 |---|---|---|
-| `shell` | Execute commands (with container isolation) | - |
+| `shell` | Execute commands (runtime-configurable: Native/Docker/Apple) | - |
 | `read_file` | Read file contents | - |
 | `write_file` | Write content to files | - |
 | `list_dir` | List directory contents | - |
@@ -126,7 +130,7 @@ One vision, four languages. Pick the right tool for the job.
 src/
 ├── agent/       Agent loop, context builder
 ├── bus/         Async message bus (pub/sub)
-├── channels/    Telegram, Slack, WhatsApp, CLI
+├── channels/    Telegram, Slack, Discord, Webhook (+ CLI mode)
 ├── config/      Configuration types and loading
 ├── cron/        Persistent cron scheduler
 ├── gateway/     Containerized agent proxy
@@ -191,7 +195,7 @@ docker compose -f docker-compose.multi-tenant.yml up -d
 
 Defense-in-depth, not defense-in-hope:
 
-1. **Container Isolation** — Docker/Apple Container for process, filesystem, and network isolation
+1. **Runtime Isolation** — configurable Native, Docker, or Apple Container runtime (containerized modes provide process/filesystem/network isolation)
 2. **Containerized Gateway** — full agent isolation per request with semaphore concurrency
 3. **Shell Blocklist** — regex patterns blocking dangerous commands (rm -rf, reverse shells, etc.)
 4. **Path Traversal Protection** — symlink escape detection, workspace-scoped filesystem
@@ -215,9 +219,9 @@ Defense-in-depth, not defense-in-hope:
 ## Development
 
 ```bash
-cargo test           # 589 tests (451 lib + 56 integration + 82 doc)
+cargo test
 cargo clippy -- -D warnings
-cargo fmt
+cargo fmt -- --check
 ```
 
 ## License

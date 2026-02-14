@@ -3,6 +3,7 @@
 //! This module provides configuration loading, saving, and global state management.
 //! Configuration is loaded from `~/.zeptoclaw/config.json` with environment variable overrides.
 
+pub mod templates;
 mod types;
 pub mod validate;
 
@@ -84,6 +85,11 @@ impl Config {
                 self.agents.defaults.agent_timeout_secs = v;
             }
         }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_AGENTS_DEFAULTS_TOKEN_BUDGET") {
+            if let Ok(v) = val.parse() {
+                self.agents.defaults.token_budget = v;
+            }
+        }
         if let Ok(val) = std::env::var("ZEPTOCLAW_AGENTS_DEFAULTS_MESSAGE_QUEUE_MODE") {
             match val.trim().to_ascii_lowercase().as_str() {
                 "collect" => self.agents.defaults.message_queue_mode = MessageQueueMode::Collect,
@@ -119,6 +125,11 @@ impl Config {
 
         // Tool-specific overrides
         self.apply_tool_env_overrides();
+
+        // Hooks
+        if let Ok(val) = std::env::var("ZEPTOCLAW_HOOKS_ENABLED") {
+            self.hooks.enabled = val.eq_ignore_ascii_case("true") || val == "1";
+        }
     }
 
     /// Apply provider-specific environment variable overrides
@@ -203,6 +214,39 @@ impl Config {
                 .gemini
                 .get_or_insert_with(ProviderConfig::default);
             provider.api_key = Some(val);
+        }
+
+        // Provider retry behavior
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_RETRY_ENABLED") {
+            if let Ok(enabled) = val.parse() {
+                self.providers.retry.enabled = enabled;
+            }
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_RETRY_MAX_RETRIES") {
+            if let Ok(v) = val.parse() {
+                self.providers.retry.max_retries = v;
+            }
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_RETRY_BASE_DELAY_MS") {
+            if let Ok(v) = val.parse() {
+                self.providers.retry.base_delay_ms = v;
+            }
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_RETRY_MAX_DELAY_MS") {
+            if let Ok(v) = val.parse() {
+                self.providers.retry.max_delay_ms = v;
+            }
+        }
+
+        // Provider fallback behavior
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_FALLBACK_ENABLED") {
+            if let Ok(enabled) = val.parse() {
+                self.providers.fallback.enabled = enabled;
+            }
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_PROVIDERS_FALLBACK_PROVIDER") {
+            let value = val.trim().to_string();
+            self.providers.fallback.provider = if value.is_empty() { None } else { Some(value) };
         }
     }
 

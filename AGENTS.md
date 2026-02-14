@@ -23,8 +23,8 @@ If you skip this, the next agent starts with stale context and wastes time.
 - Extra binary: `benchmark` (`src/bin/benchmark.rs`)
 - Benchmarks: `benches/message_bus.rs`
 - Integration tests: `tests/integration.rs`
-- Codebase: ~29,600 lines of Rust
-- Tests: ~549 lib + 63 integration + 82 doc = ~694 total
+- Codebase: ~38,000+ lines of Rust
+- Tests: ~876 lib + 63 integration + 97 doc = ~1036 total
 
 ## Current State (2026-02-14)
 
@@ -36,9 +36,31 @@ If you skip this, the next agent starts with stale context and wastes time.
 - MetricsCollector — wired into AgentLoop, tracks per-tool duration/success + token usage
 - Config fields for retry (`providers.retry.*`) and fallback (`providers.fallback.*`) with env overrides
 - Provider stack: base provider → optional FallbackProvider → optional RetryProvider
+- ConversationHistory (`src/session/history.rs`) — CLI session discovery, listing, fuzzy search, cleanup (12 tests)
+- TokenBudget (`src/agent/budget.rs`) — atomic per-session token budget with lock-free counters (18 tests)
+- OutputFormat (`src/providers/structured.rs`) — Text/Json/JsonSchema enum with OpenAI + Claude helpers (19 tests)
+- LongTermMemory (`src/memory/longterm.rs`) — persistent key-value store with categories, tags, access tracking (19 tests)
+- ConversationHistory CLI — `history list`, `history show`, `history cleanup` commands wired in main.rs
+- TokenBudget wired — `token_budget` config field, env override, budget check in agent loop before LLM calls
+- OutputFormat wired — `output_format` on `ChatOptions`, OpenAI `response_format`, Claude system suffix
+- LongTermMemoryTool (`src/tools/longterm_memory.rs`) — agent tool for set/get/search/delete/list/categories (22 tests)
+- WebhookChannel (`src/channels/webhook.rs`) — HTTP POST inbound with auth, wired in factory (28 tests)
+- DiscordChannel (`src/channels/discord.rs`) — Gateway WebSocket + REST, wired in factory (27 tests)
+- Tool approval (`src/tools/approval.rs`) — ApprovalGate with configurable policies (24 tests)
+- Agent templates (`src/config/templates.rs`) — 4 built-in + JSON file loading (21 tests)
+- Plugin system (`src/plugins/`) — JSON manifest plugins, discovery, validation, registry (70+ tests)
 
-### Everything is wired
-All existing modules are integrated. Next work comes from the backlog.
+### Deep Wiring (2026-02-14)
+- Tool approval wired — `ApprovalConfig` on `Config`, `ApprovalGate` checked before each tool execution in agent loop (both streaming and non-streaming paths)
+- Agent templates wired — `template list`, `template show` CLI commands, `agent --template <name>` flag applies system prompt + model/tokens/temperature overrides
+- Plugin system wired — `PluginConfig` on `Config`, `PluginTool` adapter (`src/tools/plugin.rs`, 10 tests), plugin discovery + registration in `create_agent()`
+- Webhook channel wired — `WebhookConfig` on `ChannelsConfig`, registered in factory with bind/port/auth/allowlist
+- DiscordChannel — fully wired in factory, functional when `discord.enabled=true` with token
+
+### Low Priority Features (2026-02-14)
+- Telemetry export (`src/utils/telemetry.rs`) — Prometheus text exposition + JSON renderers, `TelemetryConfig` on `Config` (13 tests)
+- Cost tracking (`src/utils/cost.rs`) — model pricing tables for 8 models, `CostTracker` with per-provider/model accumulation, `CostConfig` on `Config` (18 tests)
+- Batch mode (`src/batch.rs`) — load prompts from text/jsonl files, `BatchResult` + formatters, `batch` CLI command with --input/--output/--format/--stop-on-error/--stream/--template (15+ tests)
 
 ### Roadmap
 See `docs/plans/TODO.md` for the full checklist.
@@ -121,4 +143,5 @@ cargo bench --bench message_bus --no-run
 - `ProviderRef` wrapper in `delegate.rs` — converts `Arc<dyn LLMProvider>` to `Box<dyn LLMProvider>`
 - Builder pattern for provider wrappers — `RetryProvider::new(inner).with_max_retries(5)`
 - Interior mutability via `Mutex<HashMap>` — used in MetricsCollector, OpenAIProvider
+- Atomic counters via `AtomicU64` — used in TokenBudget for lock-free token tracking
 - Recursion blocking — check `ctx.channel` to prevent delegate/spawn infinite loops

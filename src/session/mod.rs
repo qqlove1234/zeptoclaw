@@ -26,8 +26,10 @@
 //! }
 //! ```
 
+pub mod history;
 pub mod types;
 
+pub use history::ConversationHistory;
 pub use types::{Message, Role, Session, ToolCall};
 
 use crate::config::Config;

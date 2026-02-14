@@ -108,14 +108,18 @@
 //! # })
 //! ```
 
+pub mod discord;
 mod factory;
 mod manager;
 pub mod slack;
 pub mod telegram;
 mod types;
+pub mod webhook;
 
+pub use discord::DiscordChannel;
 pub use factory::register_configured_channels;
 pub use manager::ChannelManager;
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
 pub use types::{BaseChannelConfig, Channel};
+pub use webhook::{WebhookChannel, WebhookChannelConfig};

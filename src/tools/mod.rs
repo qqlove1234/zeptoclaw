@@ -53,12 +53,15 @@
 //! # });
 //! ```
 
+pub mod approval;
 pub mod cron;
 pub mod delegate;
 pub mod filesystem;
 pub mod gsheets;
+pub mod longterm_memory;
 pub mod memory;
 pub mod message;
+pub mod plugin;
 pub mod r8r;
 mod registry;
 pub mod shell;
@@ -69,6 +72,7 @@ pub mod whatsapp;
 
 pub use delegate::DelegateTool;
 pub use gsheets::GoogleSheetsTool;
+pub use longterm_memory::LongTermMemoryTool;
 pub use memory::{MemoryGetTool, MemorySearchTool};
 pub use message::MessageTool;
 pub use r8r::R8rTool;

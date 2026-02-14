@@ -115,6 +115,13 @@ pub fn configured_unsupported_provider_names(config: &Config) -> Vec<&'static st
 ///
 /// Priority follows `PROVIDER_REGISTRY` order for `runtime_supported` providers.
 pub fn resolve_runtime_provider(config: &Config) -> Option<RuntimeProviderSelection> {
+    resolve_runtime_providers(config).into_iter().next()
+}
+
+/// Resolve all runtime-supported configured providers in registry order.
+pub fn resolve_runtime_providers(config: &Config) -> Vec<RuntimeProviderSelection> {
+    let mut resolved = Vec::new();
+
     for spec in PROVIDER_REGISTRY
         .iter()
         .filter(|spec| spec.runtime_supported)
@@ -132,14 +139,14 @@ pub fn resolve_runtime_provider(config: &Config) -> Option<RuntimeProviderSelect
             }
         });
 
-        return Some(RuntimeProviderSelection {
+        resolved.push(RuntimeProviderSelection {
             name: spec.name,
             api_key: api_key.to_string(),
             api_base,
         });
     }
 
-    None
+    resolved
 }
 
 #[cfg(test)]
@@ -210,6 +217,24 @@ mod tests {
         assert_eq!(selected.name, "openai");
         assert_eq!(selected.api_key, "sk-openai");
         assert_eq!(selected.api_base.as_deref(), Some("https://example.com/v1"));
+    }
+
+    #[test]
+    fn test_resolve_runtime_providers_returns_all_supported() {
+        let mut config = Config::default();
+        config.providers.anthropic = Some(ProviderConfig {
+            api_key: Some("sk-ant".to_string()),
+            ..Default::default()
+        });
+        config.providers.openai = Some(ProviderConfig {
+            api_key: Some("sk-openai".to_string()),
+            ..Default::default()
+        });
+
+        let resolved = resolve_runtime_providers(&config);
+        assert_eq!(resolved.len(), 2);
+        assert_eq!(resolved[0].name, "anthropic");
+        assert_eq!(resolved[1].name, "openai");
     }
 
     #[test]

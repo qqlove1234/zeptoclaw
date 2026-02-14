@@ -389,8 +389,8 @@ fn configure_openai(config: &mut Config) -> Result<()> {
             .map(|k| k.is_empty())
             .unwrap_or(true)
         {
-            config.agents.defaults.model = "gpt-4o".to_string();
-            println!("  Default model set to: gpt-4o");
+            config.agents.defaults.model = "gpt-5.1".to_string();
+            println!("  Default model set to: gpt-5.1");
         }
         println!("  OpenAI API key configured.");
 

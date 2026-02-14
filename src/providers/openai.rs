@@ -45,7 +45,7 @@ const OPENAI_API_URL: &str = "https://api.openai.com/v1";
 /// Can be overridden at compile time with `ZEPTOCLAW_OPENAI_DEFAULT_MODEL` env var.
 const DEFAULT_MODEL: &str = match option_env!("ZEPTOCLAW_OPENAI_DEFAULT_MODEL") {
     Some(v) => v,
-    None => "gpt-4o",
+    None => "gpt-5.1",
 };
 
 // ============================================================================
@@ -80,6 +80,9 @@ struct OpenAIRequest {
     /// Whether to stream the response using SSE
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    /// Response format (e.g., json_object, json_schema)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<serde_json::Value>,
 }
 
 /// A message in OpenAI's format.
@@ -497,6 +500,7 @@ fn build_request(
         top_p: options.top_p,
         stop: options.stop.clone(),
         stream: None,
+        response_format: options.output_format.to_openai_response_format(),
     }
 }
 
@@ -833,7 +837,7 @@ mod tests {
     fn test_openai_provider_creation() {
         let provider = OpenAIProvider::new("test-key");
         assert_eq!(provider.name(), "openai");
-        assert_eq!(provider.default_model(), "gpt-4o");
+        assert_eq!(provider.default_model(), "gpt-5.1");
         assert_eq!(provider.api_base, "https://api.openai.com/v1");
     }
 
@@ -1038,7 +1042,7 @@ mod tests {
     #[test]
     fn test_openai_request_serialization() {
         let request = OpenAIRequest {
-            model: "gpt-4o".to_string(),
+            model: "gpt-5.1".to_string(),
             messages: vec![OpenAIMessage {
                 role: "user".to_string(),
                 content: Some("Hello".to_string()),
@@ -1052,11 +1056,12 @@ mod tests {
             top_p: None,
             stop: None,
             stream: None,
+            response_format: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
 
-        assert!(json.contains("gpt-4o"));
+        assert!(json.contains("gpt-5.1"));
         assert!(json.contains("max_tokens"));
         assert!(json.contains("Hello"));
         assert!(json.contains("temperature"));
@@ -1064,12 +1069,13 @@ mod tests {
         assert!(!json.contains("top_p"));
         assert!(!json.contains("stop"));
         assert!(!json.contains("tools"));
+        assert!(!json.contains("response_format"));
     }
 
     #[test]
     fn test_openai_request_with_tools() {
         let request = OpenAIRequest {
-            model: "gpt-4o".to_string(),
+            model: "gpt-5.1".to_string(),
             messages: vec![],
             tools: Some(vec![OpenAITool {
                 r#type: "function".to_string(),
@@ -1085,6 +1091,7 @@ mod tests {
             top_p: None,
             stop: None,
             stream: None,
+            response_format: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -1134,7 +1141,7 @@ mod tests {
         let options = ChatOptions::new().with_max_tokens(123);
 
         let request = build_request(
-            "gpt-4o",
+            "gpt-5.1",
             &messages,
             &tools,
             &options,

@@ -1,0 +1,48 @@
+# ZeptoClaw Single-Tenant Deployment
+#
+# The simplest way to run ZeptoClaw on a VPS.
+#
+# Setup:
+#   1. Build image:  docker build -t zeptoclaw ..
+#   2. Configure:    cp .env.example .env && nano .env
+#   3. Start:        docker compose -f docker-compose.single.yml up -d
+#   4. Logs:         docker compose -f docker-compose.single.yml logs -f
+#   5. Stop:         docker compose -f docker-compose.single.yml down
+#
+# Works on: Any VPS with Docker (Hetzner, DigitalOcean, Linode, etc.)
+# Resources: ~6MB RAM, ~4MB disk for binary
+
+services:
+  zeptoclaw:
+    image: zeptoclaw:latest
+    container_name: zeptoclaw
+    restart: unless-stopped
+    volumes:
+      - zeptoclaw-data:/data
+    env_file: .env
+    environment:
+      - RUST_LOG=zeptoclaw=info
+      - RUST_LOG_FORMAT=json
+    ports:
+      - "8080:8080"   # Gateway API
+      - "9090:9090"   # Health check
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: ["zeptoclaw", "gateway"]
+
+volumes:
+  zeptoclaw-data:

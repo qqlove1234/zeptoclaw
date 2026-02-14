@@ -1,5 +1,7 @@
 //! Workspace memory utilities (OpenClaw-style markdown memory).
 
+pub mod longterm;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};

@@ -54,8 +54,10 @@
 //! }
 //! ```
 
+pub mod budget;
 mod context;
 mod r#loop;
 
+pub use budget::TokenBudget;
 pub use context::ContextBuilder;
 pub use r#loop::AgentLoop;

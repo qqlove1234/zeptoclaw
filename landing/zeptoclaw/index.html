@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZeptoClaw — Ultra-Lightweight AI Assistant</title>
-    <meta name="description" content="A personal AI assistant framework that fits in ~5MB. Multi-provider, 16+ tools, container isolation, and blazing fast.">
+    <meta name="description" content="Ultra-lightweight AI agent framework in ~5MB. Streaming, agent swarms, plugins, batch mode, 4 channels, container isolation, 1000+ tests.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -853,16 +853,17 @@
 
     <section class="hero">
         <div class="hero-content">
-            <div class="badge">v0.1.0 — Now Available</div>
+            <div class="badge">v0.2.0 — Now Available</div>
             <h1>AI Assistant That Fits<br>in <span class="highlight">5 Megabytes</span></h1>
             <p class="hero-subtitle">
-                Ultra-lightweight personal AI assistant framework. 16+ tools, multi-provider support,
-                container isolation, cron scheduling, and agent swarms — all in a single binary.
+                Ultra-lightweight AI agent framework. Streaming, agent swarms, plugins,
+                batch mode, 4 channels, container isolation — all in a single Rust binary.
             </p>
             <div class="hero-stats">
                 <div class="hero-stat">⚡ <span>~5MB</span> binary</div>
-                <div class="hero-stat">🛠️ <span>16+</span> built-in tools</div>
-                <div class="hero-stat">🤖 <span>7</span> LLM providers</div>
+                <div class="hero-stat">🛠️ <span>15+</span> tools + plugins</div>
+                <div class="hero-stat">📡 <span>4</span> channels</div>
+                <div class="hero-stat">🧪 <span>1000+</span> tests</div>
             </div>
             <div class="hero-cta">
                 <a href="#install" class="btn btn-primary">Install ZeptoClaw</a>
@@ -879,31 +880,27 @@
                 <div class="terminal-body">
                     <div class="terminal-line">
                         <span class="terminal-prompt">$</span>
-                        <span class="terminal-command">zeptoclaw agent "Analyze the codebase"</span>
+                        <span class="terminal-command">zeptoclaw agent --stream --template researcher -m "Analyze our API"</span>
                     </div>
                     <div class="terminal-output">
-                        <span class="terminal-ai">🤖 ZeptoClaw</span> — I'll analyze the codebase for you.<br><br>
-                        <span class="terminal-tool">read_file</span> Reading project structure...<br>
-                        <span class="terminal-tool">shell</span> Running cargo check...<br>
+                        <span class="terminal-ai">🤖 ZeptoClaw</span> — Streaming analysis with researcher template<br><br>
+                        <span class="terminal-tool">web_fetch</span> Fetching API docs...<br>
+                        <span class="terminal-tool">shell</span> Running integration tests...<br>
+                        <span class="terminal-tool">longterm_memory</span> Storing findings...<br>
                     </div>
                     <div class="terminal-line">
                         <span class="terminal-ai">→</span>
-                        <span class="terminal-command">Found 40+ Rust source files across 17 modules</span>
-                    </div>
-                    <div class="terminal-line">
-                        <span class="terminal-ai">→</span>
-                        <span class="terminal-command">Architecture: Async trait-based with MessageBus</span>
-                    </div>
-                    <div class="terminal-line">
-                        <span class="terminal-ai">→</span>
-                        <span class="terminal-command">Providers: Anthropic, OpenAI, Gemini, Groq + 3 more</span>
-                    </div>
-                    <div class="terminal-line">
-                        <span class="terminal-ai">→</span>
-                        <span class="terminal-command">Tools: shell, filesystem, web, memory, cron, whatsapp + 10 more</span>
+                        <span class="terminal-command">Found 12 endpoints, 3 missing auth headers</span>
                     </div>
                     <div class="terminal-output">
-                        <span style="color: var(--success)">✓</span> Analysis complete in 1.2s
+                        <span style="color: var(--success)">✓</span> Analysis complete — saved to long-term memory
+                    </div>
+                    <div class="terminal-line">
+                        <span class="terminal-prompt">$</span>
+                        <span class="terminal-command">zeptoclaw batch --input prompts.txt --template coder --format jsonl</span>
+                    </div>
+                    <div class="terminal-output">
+                        <span style="color: var(--success)">✓</span> 50 prompts processed — 48 success, 2 errors
                     </div>
                     <div class="terminal-line">
                         <span class="terminal-prompt">$</span>
@@ -920,8 +917,8 @@
                 <div class="section-tag">Features</div>
                 <h2>Small Binary, Big Capabilities</h2>
                 <p class="section-subtitle">
-                    ZeptoClaw proves that size isn't everything. 17 modules and 16+ tools
-                    in a single binary smaller than most app icons.
+                    20+ modules, 15+ tools, plugins, streaming, agent swarms, and batch mode
+                    — in a single binary smaller than most app icons.
                 </p>
             </div>
 
@@ -929,13 +926,31 @@
                 <div class="feature-card">
                     <div class="feature-icon">🤖</div>
                     <h3>Multi-Provider LLM</h3>
-                    <p>Seamlessly switch between Claude, GPT-4, Gemini, Groq, and more. Provider registry with priority-based fallback resolution.</p>
+                    <p>Claude and OpenAI with automatic retry on failures and fallback between providers. Exponential backoff, token budget tracking, and cost estimation built in.</p>
                 </div>
 
                 <div class="feature-card">
-                    <div class="feature-icon">🛠️</div>
-                    <h3>16+ Built-in Tools</h3>
-                    <p>Shell, filesystem, web search, web fetch, memory, cron scheduling, spawn, WhatsApp, Google Sheets, and more. Extend with the simple Tool trait.</p>
+                    <div class="feature-icon">⚡</div>
+                    <h3>Streaming Responses</h3>
+                    <p>Real-time SSE streaming from both Claude and OpenAI. Watch responses appear token-by-token in CLI, gateway, or batch mode.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🐝</div>
+                    <h3>Agent Swarms</h3>
+                    <p>Delegate subtasks to specialized sub-agents with role-specific prompts and tool whitelists. Recursion blocking prevents infinite loops.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">🔌</div>
+                    <h3>Plugin System</h3>
+                    <p>Extend with JSON manifest plugins — define custom tools with command templates, parameter schemas, and validation. Auto-discovered at startup.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📋</div>
+                    <h3>Agent Templates</h3>
+                    <p>4 built-in templates (coder, researcher, writer, analyst) plus custom JSON templates. Override system prompt, model, tokens, and temperature.</p>
                 </div>
 
                 <div class="feature-card">
@@ -946,38 +961,38 @@
 
                 <div class="feature-card">
                     <div class="feature-icon">💬</div>
-                    <h3>Multi-Channel Gateway</h3>
-                    <p>Chat via Telegram, Slack, WhatsApp, or CLI. Channel factory with per-channel configuration and unified message bus.</p>
+                    <h3>4-Channel Gateway</h3>
+                    <p>Telegram, Slack, Discord, and Webhook channels. Plus CLI mode. Channel factory with per-channel auth, allowlists, and unified message bus.</p>
                 </div>
 
                 <div class="feature-card">
                     <div class="feature-icon">🧠</div>
-                    <h3>Memory &amp; Sessions</h3>
-                    <p>Long-running conversations with context. Persistent memory search and retrieval. Sessions survive restarts with filesystem storage.</p>
-                </div>
-
-                <div class="feature-card">
-                    <div class="feature-icon">⏰</div>
-                    <h3>Cron &amp; Scheduling</h3>
-                    <p>Schedule recurring tasks with cron expressions. Heartbeat service for proactive check-ins. Background agent spawning for async work.</p>
+                    <h3>Memory &amp; History</h3>
+                    <p>Long-term key-value memory with categories and tags. Conversation history with session discovery, search, and cleanup. Persistent across restarts.</p>
                 </div>
 
                 <div class="feature-card">
                     <div class="feature-icon">📊</div>
-                    <h3>Health &amp; Observability</h3>
-                    <p>Built-in health endpoints, usage metrics with atomic counters, structured JSON logging, and per-request tracing with tenant isolation.</p>
+                    <h3>Telemetry &amp; Cost Tracking</h3>
+                    <p>Prometheus and JSON metrics export. Per-model cost estimation for 8 models. Token budget enforcement with atomic lock-free counters.</p>
                 </div>
 
                 <div class="feature-card">
-                    <div class="feature-icon">🌐</div>
-                    <h3>Web &amp; Integrations</h3>
-                    <p>Web search, web fetch, Google Sheets read/write, WhatsApp messaging, and proactive outbound messages across all channels.</p>
+                    <div class="feature-icon">🔐</div>
+                    <h3>Tool Approval Gate</h3>
+                    <p>Policy-based tool gating — require approval before dangerous tools execute. SSRF prevention, path traversal detection, shell blocklists.</p>
+                </div>
+
+                <div class="feature-card">
+                    <div class="feature-icon">📂</div>
+                    <h3>Batch Mode</h3>
+                    <p>Process hundreds of prompts from text or JSONL files. Template support, text or JSONL output, stop-on-error control.</p>
                 </div>
 
                 <div class="feature-card">
                     <div class="feature-icon">🦀</div>
                     <h3>Written in Rust</h3>
-                    <p>Memory safety without garbage collection. Zero runtime crashes. Minimal resource usage even under heavy load.</p>
+                    <p>Memory safety without garbage collection. 1000+ tests. Async-first with Tokio. Minimal resource usage even under heavy load.</p>
                 </div>
             </div>
         </div>
@@ -1049,12 +1064,12 @@
                 <div class="family-card current">
                     <h4>ZeptoClaw</h4>
                     <div class="family-lang">Rust</div>
-                    <p>The secure one. Multi-tenant, containerized, zero crashes.</p>
+                    <p>The secure one. Streaming, swarms, plugins, batch mode, 1000+ tests.</p>
                     <ul class="family-traits">
-                        <li>~5MB binary</li>
-                        <li>16+ tools</li>
+                        <li>~5MB binary, 1000+ tests</li>
+                        <li>15+ tools + plugin system</li>
+                        <li>4 channels + agent swarms</li>
                         <li>Container isolation</li>
-                        <li>Multi-tenant ready</li>
                     </ul>
                 </div>
             </div>
@@ -1064,17 +1079,14 @@
     <section class="providers">
         <div class="container">
             <div class="section-header">
-                <div class="section-tag">Supported Providers</div>
-                <h2>Bring Your Own API Key</h2>
+                <div class="section-tag">Provider Stack</div>
+                <h2>Resilient by Default</h2>
             </div>
             <div class="providers-grid">
-                <div class="provider-item">Claude</div>
-                <div class="provider-item">GPT-4</div>
-                <div class="provider-item">Gemini</div>
-                <div class="provider-item">Groq</div>
-                <div class="provider-item">OpenRouter</div>
-                <div class="provider-item">Zhipu</div>
-                <div class="provider-item">VLLM</div>
+                <div class="provider-item">Claude (Anthropic)</div>
+                <div class="provider-item">GPT-5.1 (OpenAI)</div>
+                <div class="provider-item">Auto-Retry (429/5xx)</div>
+                <div class="provider-item">Auto-Fallback</div>
             </div>
         </div>
     </section>
@@ -1092,17 +1104,17 @@
             <div class="arch-grid">
                 <div class="arch-card">
                     <h4>Channels</h4>
-                    <p>Telegram, Slack, WhatsApp, CLI — unified message interface</p>
+                    <p>Telegram, Slack, Discord, Webhook, CLI — unified message interface</p>
                 </div>
                 <div class="arch-arrow">→</div>
                 <div class="arch-card">
                     <h4>Agent Loop</h4>
-                    <p>MessageBus → LLM provider → Tool execution → Response</p>
+                    <p>Approval gate → Token budget → Tool execution → Streaming response</p>
                 </div>
                 <div class="arch-arrow">→</div>
                 <div class="arch-card">
-                    <h4>Providers</h4>
-                    <p>Pluggable LLM backends with unified interface</p>
+                    <h4>Provider Stack</h4>
+                    <p>Base provider → Fallback → Retry with cost tracking</p>
                 </div>
             </div>
         </div>
@@ -1144,16 +1156,16 @@
                 <div class="stat-label">Release Binary</div>
             </div>
             <div class="stat-item">
-                <div class="stat-value">17</div>
+                <div class="stat-value">20+</div>
                 <div class="stat-label">Core Modules</div>
             </div>
             <div class="stat-item">
-                <div class="stat-value">16+</div>
-                <div class="stat-label">Built-in Tools</div>
+                <div class="stat-value">15+</div>
+                <div class="stat-label">Tools + Plugins</div>
             </div>
             <div class="stat-item">
-                <div class="stat-value">0</div>
-                <div class="stat-label">Runtime Crashes</div>
+                <div class="stat-value">1000+</div>
+                <div class="stat-label">Tests Passing</div>
             </div>
         </div>
     </section>
@@ -1185,12 +1197,14 @@
                 <div class="install-step">
                     <h4>3. Start your assistant</h4>
                     <div class="install-code">
-                        <span class="comment"># CLI mode — talk directly</span><br>
-                        <span class="prompt">$</span> zeptoclaw agent -m "Hello, set up my workspace"<br><br>
-                        <span class="comment"># Gateway mode — Telegram/Slack/WhatsApp bot</span><br>
+                        <span class="comment"># CLI mode with streaming</span><br>
+                        <span class="prompt">$</span> zeptoclaw agent --stream -m "Hello, set up my workspace"<br><br>
+                        <span class="comment"># Use a built-in template</span><br>
+                        <span class="prompt">$</span> zeptoclaw agent --template researcher -m "Analyze this API"<br><br>
+                        <span class="comment"># Gateway mode — Telegram/Slack/Discord/Webhook</span><br>
                         <span class="prompt">$</span> zeptoclaw gateway<br><br>
-                        <span class="comment"># Containerized — full isolation per request</span><br>
-                        <span class="prompt">$</span> zeptoclaw gateway --containerized
+                        <span class="comment"># Batch mode — process prompts from file</span><br>
+                        <span class="prompt">$</span> zeptoclaw batch --input prompts.txt --format jsonl
                     </div>
                 </div>
             </div>

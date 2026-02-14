@@ -1,6 +1,7 @@
 //! ZeptoClaw - Ultra-lightweight personal AI assistant framework
 
 pub mod agent;
+pub mod batch;
 pub mod bus;
 pub mod channels;
 pub mod config;
@@ -9,7 +10,9 @@ pub mod error;
 pub mod gateway;
 pub mod health;
 pub mod heartbeat;
+pub mod hooks;
 pub mod memory;
+pub mod plugins;
 pub mod providers;
 pub mod runtime;
 pub mod security;

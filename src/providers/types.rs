@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Result, ZeptoError};
+use crate::providers::structured::OutputFormat;
 use crate::session::Message;
 
 /// Events emitted during streaming LLM responses.
@@ -147,6 +148,8 @@ pub struct ChatOptions {
     pub top_p: Option<f32>,
     /// Stop sequences that halt generation
     pub stop: Option<Vec<String>>,
+    /// Output format (text, JSON, or JSON schema)
+    pub output_format: OutputFormat,
 }
 
 impl ChatOptions {
@@ -231,6 +234,24 @@ impl ChatOptions {
     /// ```
     pub fn with_stop(mut self, stop: Vec<String>) -> Self {
         self.stop = Some(stop);
+        self
+    }
+
+    /// Set the output format for structured responses.
+    ///
+    /// # Arguments
+    /// * `output_format` - The desired output format (text, JSON, or JSON schema)
+    ///
+    /// # Example
+    /// ```
+    /// use zeptoclaw::providers::ChatOptions;
+    /// use zeptoclaw::providers::structured::OutputFormat;
+    ///
+    /// let options = ChatOptions::new().with_output_format(OutputFormat::json());
+    /// assert!(options.output_format.is_json());
+    /// ```
+    pub fn with_output_format(mut self, output_format: OutputFormat) -> Self {
+        self.output_format = output_format;
         self
     }
 }

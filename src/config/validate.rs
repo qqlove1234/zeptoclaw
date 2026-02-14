@@ -16,6 +16,12 @@ const KNOWN_TOP_LEVEL: &[&str] = &[
     "runtime",
     "container_agent",
     "swarm",
+    "approval",
+    "plugins",
+    "telemetry",
+    "cost",
+    "batch",
+    "hooks",
 ];
 
 /// Known fields for each section. Nested as section.field.

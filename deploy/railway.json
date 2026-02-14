@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "dockerfilePath": "../Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "zeptoclaw gateway",
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 5,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 3
+  }
+}

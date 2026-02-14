@@ -111,7 +111,13 @@ impl LLMProvider for ClaudeProvider {
         let model = model.unwrap_or(DEFAULT_MODEL);
 
         // Convert messages to Claude format, extracting system message
-        let (system, claude_messages) = convert_messages(messages)?;
+        let (mut system, claude_messages) = convert_messages(messages)?;
+
+        // Append structured output instructions to system prompt if needed
+        if let Some(suffix) = options.output_format.to_claude_system_suffix() {
+            let base = system.unwrap_or_default();
+            system = Some(format!("{}{}", base, suffix));
+        }
 
         // Build request
         let request = ClaudeRequest {
@@ -174,7 +180,13 @@ impl LLMProvider for ClaudeProvider {
         use futures::StreamExt;
 
         let model = model.unwrap_or(DEFAULT_MODEL);
-        let (system, claude_messages) = convert_messages(messages)?;
+        let (mut system, claude_messages) = convert_messages(messages)?;
+
+        // Append structured output instructions to system prompt if needed
+        if let Some(suffix) = options.output_format.to_claude_system_suffix() {
+            let base = system.unwrap_or_default();
+            system = Some(format!("{}{}", base, suffix));
+        }
 
         let request = ClaudeRequest {
             model: model.to_string(),

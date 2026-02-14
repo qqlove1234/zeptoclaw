@@ -7,7 +7,8 @@ use tracing::{info, warn};
 use crate::bus::MessageBus;
 use crate::config::Config;
 
-use super::{ChannelManager, SlackChannel, TelegramChannel};
+use super::webhook::{WebhookChannel, WebhookChannelConfig};
+use super::{BaseChannelConfig, ChannelManager, DiscordChannel, SlackChannel, TelegramChannel};
 
 /// Register all configured channels that currently have implementations.
 ///
@@ -51,16 +52,49 @@ pub async fn register_configured_channels(
         }
     }
 
-    // Enabled in config but not implemented in runtime wiring yet.
-    if config
-        .channels
-        .discord
-        .as_ref()
-        .map(|c| c.enabled)
-        .unwrap_or(false)
-    {
-        warn!("Discord channel is enabled but not implemented");
+    // Discord
+    if let Some(ref discord_config) = config.channels.discord {
+        if discord_config.enabled {
+            if discord_config.token.is_empty() {
+                warn!("Discord channel enabled but token is empty");
+            } else {
+                manager
+                    .register(Box::new(DiscordChannel::new(
+                        discord_config.clone(),
+                        bus.clone(),
+                    )))
+                    .await;
+                info!("Registered Discord channel");
+            }
+        }
     }
+    // Webhook
+    if let Some(ref webhook_config) = config.channels.webhook {
+        if webhook_config.enabled {
+            let runtime_config = WebhookChannelConfig {
+                bind_address: webhook_config.bind_address.clone(),
+                port: webhook_config.port,
+                path: webhook_config.path.clone(),
+                auth_token: webhook_config.auth_token.clone(),
+            };
+            let base_config = BaseChannelConfig {
+                name: "webhook".to_string(),
+                allowlist: webhook_config.allow_from.clone(),
+            };
+            manager
+                .register(Box::new(WebhookChannel::new(
+                    runtime_config,
+                    base_config,
+                    bus.clone(),
+                )))
+                .await;
+            info!(
+                "Registered Webhook channel on {}:{}",
+                webhook_config.bind_address, webhook_config.port
+            );
+        }
+    }
+
     if config
         .channels
         .whatsapp

@@ -32,6 +32,18 @@ pub struct Config {
     pub container_agent: ContainerAgentConfig,
     /// Swarm / multi-agent delegation configuration
     pub swarm: SwarmConfig,
+    /// Tool approval configuration
+    pub approval: crate::tools::approval::ApprovalConfig,
+    /// Plugin system configuration
+    pub plugins: crate::plugins::types::PluginConfig,
+    /// Telemetry export configuration
+    pub telemetry: crate::utils::telemetry::TelemetryConfig,
+    /// Cost tracking configuration
+    pub cost: crate::utils::cost::CostConfig,
+    /// Batch processing configuration
+    pub batch: crate::batch::BatchConfig,
+    /// Hook system configuration
+    pub hooks: crate::hooks::HooksConfig,
 }
 
 /// Agent configuration
@@ -63,6 +75,8 @@ pub struct AgentDefaults {
     pub message_queue_mode: MessageQueueMode,
     /// Whether to stream the final LLM response token-by-token in CLI mode.
     pub streaming: bool,
+    /// Per-session token budget (input + output). 0 = unlimited.
+    pub token_budget: u64,
 }
 
 /// Default model compile-time configuration.
@@ -83,6 +97,7 @@ impl Default for AgentDefaults {
             agent_timeout_secs: 300,
             message_queue_mode: MessageQueueMode::default(),
             streaming: false,
+            token_budget: 0,
         }
     }
 }
@@ -122,6 +137,56 @@ pub struct ChannelsConfig {
     pub qq: Option<QQConfig>,
     /// DingTalk configuration
     pub dingtalk: Option<DingTalkConfig>,
+    /// Webhook inbound channel configuration
+    pub webhook: Option<WebhookConfig>,
+}
+
+/// Webhook inbound channel configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookConfig {
+    /// Whether the channel is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    /// Address to bind the HTTP server to
+    #[serde(default = "default_webhook_bind_address")]
+    pub bind_address: String,
+    /// Port to listen on
+    #[serde(default = "default_webhook_port")]
+    pub port: u16,
+    /// URL path to accept webhook requests on
+    #[serde(default = "default_webhook_path")]
+    pub path: String,
+    /// Optional Bearer token for request authentication
+    #[serde(default)]
+    pub auth_token: Option<String>,
+    /// Allowlist of sender IDs (empty = allow all)
+    #[serde(default)]
+    pub allow_from: Vec<String>,
+}
+
+fn default_webhook_bind_address() -> String {
+    "127.0.0.1".to_string()
+}
+
+fn default_webhook_port() -> u16 {
+    9876
+}
+
+fn default_webhook_path() -> String {
+    "/webhook".to_string()
+}
+
+impl Default for WebhookConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind_address: default_webhook_bind_address(),
+            port: default_webhook_port(),
+            path: default_webhook_path(),
+            auth_token: None,
+            allow_from: Vec::new(),
+        }
+    }
 }
 
 /// Telegram channel configuration
@@ -302,6 +367,10 @@ pub struct ProvidersConfig {
     pub vllm: Option<ProviderConfig>,
     /// Google Gemini configuration
     pub gemini: Option<ProviderConfig>,
+    /// Retry behavior for runtime provider calls
+    pub retry: RetryConfig,
+    /// Fallback behavior across multiple configured runtime providers
+    pub fallback: FallbackConfig,
 }
 
 /// Generic provider configuration
@@ -316,6 +385,50 @@ pub struct ProviderConfig {
     /// Authentication method (e.g., "oauth", "api_key")
     #[serde(default)]
     pub auth_method: Option<String>,
+}
+
+/// Retry behavior for runtime provider calls.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RetryConfig {
+    /// Enable automatic retry for transient provider errors.
+    pub enabled: bool,
+    /// Maximum number of retry attempts.
+    pub max_retries: u32,
+    /// Base delay in milliseconds for exponential backoff.
+    pub base_delay_ms: u64,
+    /// Maximum delay cap in milliseconds for exponential backoff.
+    pub max_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_retries: 3,
+            base_delay_ms: 1_000,
+            max_delay_ms: 30_000,
+        }
+    }
+}
+
+/// Fallback behavior across multiple configured runtime providers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FallbackConfig {
+    /// Enable provider fallback (primary -> secondary) when possible.
+    pub enabled: bool,
+    /// Optional preferred fallback provider id (e.g. "openai", "anthropic").
+    pub provider: Option<String>,
+}
+
+impl Default for FallbackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: None,
+        }
+    }
 }
 
 // ============================================================================

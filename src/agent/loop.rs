@@ -16,8 +16,11 @@ use crate::error::{Result, ZeptoError};
 use crate::health::UsageMetrics;
 use crate::providers::{ChatOptions, LLMProvider};
 use crate::session::{Message, Role, SessionManager, ToolCall};
+use crate::tools::approval::ApprovalGate;
 use crate::tools::{Tool, ToolContext, ToolRegistry};
+use crate::utils::metrics::MetricsCollector;
 
+use super::budget::TokenBudget;
 use super::context::ContextBuilder;
 
 /// The main agent loop that processes messages and coordinates with LLM providers.
@@ -67,6 +70,8 @@ pub struct AgentLoop {
     context_builder: ContextBuilder,
     /// Optional usage metrics sink for gateway observability
     usage_metrics: Arc<RwLock<Option<Arc<UsageMetrics>>>>,
+    /// Per-agent metrics collector for tool and token tracking.
+    metrics_collector: Arc<MetricsCollector>,
     /// Shutdown signal sender
     shutdown_tx: watch::Sender<bool>,
     /// Per-session locks to serialize concurrent messages for the same session
@@ -75,6 +80,10 @@ pub struct AgentLoop {
     pending_messages: Arc<Mutex<HashMap<String, Vec<InboundMessage>>>>,
     /// Whether to stream the final LLM response in CLI mode.
     streaming: AtomicBool,
+    /// Per-session token budget tracker.
+    token_budget: Arc<TokenBudget>,
+    /// Tool approval gate for policy-based tool gating.
+    approval_gate: Arc<ApprovalGate>,
 }
 
 impl AgentLoop {
@@ -101,6 +110,8 @@ impl AgentLoop {
     /// ```
     pub fn new(config: Config, session_manager: SessionManager, bus: Arc<MessageBus>) -> Self {
         let (shutdown_tx, _) = watch::channel(false);
+        let token_budget = Arc::new(TokenBudget::new(config.agents.defaults.token_budget));
+        let approval_gate = Arc::new(ApprovalGate::new(config.approval.clone()));
         Self {
             config,
             session_manager: Arc::new(session_manager),
@@ -110,10 +121,13 @@ impl AgentLoop {
             running: AtomicBool::new(false),
             context_builder: ContextBuilder::new(),
             usage_metrics: Arc::new(RwLock::new(None)),
+            metrics_collector: Arc::new(MetricsCollector::new()),
             shutdown_tx,
             session_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_messages: Arc::new(Mutex::new(HashMap::new())),
             streaming: AtomicBool::new(false),
+            token_budget,
+            approval_gate,
         }
     }
 
@@ -131,6 +145,8 @@ impl AgentLoop {
         context_builder: ContextBuilder,
     ) -> Self {
         let (shutdown_tx, _) = watch::channel(false);
+        let token_budget = Arc::new(TokenBudget::new(config.agents.defaults.token_budget));
+        let approval_gate = Arc::new(ApprovalGate::new(config.approval.clone()));
         Self {
             config,
             session_manager: Arc::new(session_manager),
@@ -140,10 +156,13 @@ impl AgentLoop {
             running: AtomicBool::new(false),
             context_builder,
             usage_metrics: Arc::new(RwLock::new(None)),
+            metrics_collector: Arc::new(MetricsCollector::new()),
             shutdown_tx,
             session_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_messages: Arc::new(Mutex::new(HashMap::new())),
             streaming: AtomicBool::new(false),
+            token_budget,
+            approval_gate,
         }
     }
 
@@ -176,6 +195,11 @@ impl AgentLoop {
     pub async fn set_usage_metrics(&self, metrics: Arc<UsageMetrics>) {
         let mut usage_metrics = self.usage_metrics.write().await;
         *usage_metrics = Some(metrics);
+    }
+
+    /// Get the per-agent metrics collector.
+    pub fn metrics_collector(&self) -> Arc<MetricsCollector> {
+        Arc::clone(&self.metrics_collector)
     }
 
     /// Register a tool with the agent.
@@ -254,6 +278,7 @@ impl AgentLoop {
             let metrics = self.usage_metrics.read().await;
             metrics.clone()
         };
+        let metrics_collector = Arc::clone(&self.metrics_collector);
 
         // Get or create session
         let mut session = self.session_manager.get_or_create(&msg.session_key).await?;
@@ -276,12 +301,26 @@ impl AgentLoop {
 
         let model = Some(self.config.agents.defaults.model.as_str());
 
+        // Check token budget before first LLM call
+        if self.token_budget.is_exceeded() {
+            return Err(ZeptoError::Provider(format!(
+                "Token budget exceeded: {}",
+                self.token_budget.summary()
+            )));
+        }
+
         // Call LLM -- provider lock is NOT held during this await
         let mut response = provider
             .chat(messages, tool_definitions.clone(), model, options.clone())
             .await?;
         if let (Some(metrics), Some(usage)) = (usage_metrics.as_ref(), response.usage.as_ref()) {
             metrics.record_tokens(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+        }
+        if let Some(usage) = response.usage.as_ref() {
+            metrics_collector
+                .record_tokens(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+            self.token_budget
+                .record(usage.prompt_tokens as u64, usage.completion_tokens as u64);
         }
 
         // Add user message to session
@@ -320,6 +359,8 @@ impl AgentLoop {
                 .with_channel(&msg.channel, &msg.chat_id)
                 .with_workspace(&workspace_str);
 
+            let approval_gate = Arc::clone(&self.approval_gate);
+            let hook_engine = Arc::new(crate::hooks::HookEngine::new(self.config.hooks.clone()));
             let tool_futures: Vec<_> = response
                 .tool_calls
                 .iter()
@@ -330,6 +371,9 @@ impl AgentLoop {
                     let id = tool_call.id.clone();
                     let raw_args = tool_call.arguments.clone();
                     let usage_metrics = usage_metrics.clone();
+                    let metrics_collector = Arc::clone(&metrics_collector);
+                    let gate = Arc::clone(&approval_gate);
+                    let hooks = Arc::clone(&hook_engine);
 
                     async move {
                         let args: serde_json::Value = match serde_json::from_str(&raw_args) {
@@ -340,25 +384,43 @@ impl AgentLoop {
                             }
                         };
 
+                        // Check hooks before executing
+                        let channel_name = ctx.channel.as_deref().unwrap_or("cli");
+                        if let crate::hooks::HookResult::Block(msg) = hooks.before_tool(&name, &args, channel_name) {
+                            return (id, format!("Tool '{}' blocked by hook: {}", name, msg));
+                        }
+
+                        // Check approval gate before executing
+                        if gate.requires_approval(&name) {
+                            let prompt = gate.format_approval_request(&name, &args);
+                            info!(tool = %name, "Tool requires approval, blocking execution");
+                            return (id, format!("Tool '{}' requires user approval and was not executed. {}", name, prompt));
+                        }
+
                         let tool_start = std::time::Instant::now();
-                        let result = {
+                        let (result, success) = {
                             let tools_guard = tools.read().await;
                             match tools_guard.execute_with_context(&name, args, &ctx).await {
                                 Ok(r) => {
-                                    let latency_ms = tool_start.elapsed().as_millis() as u64;
+                                    let elapsed = tool_start.elapsed();
+                                    let latency_ms = elapsed.as_millis() as u64;
                                     debug!(tool = %name, latency_ms = latency_ms, "Tool executed successfully");
-                                    r
+                                    hooks.after_tool(&name, &r, elapsed, channel_name);
+                                    (r, true)
                                 }
                                 Err(e) => {
-                                    let latency_ms = tool_start.elapsed().as_millis() as u64;
+                                    let elapsed = tool_start.elapsed();
+                                    let latency_ms = elapsed.as_millis() as u64;
                                     error!(tool = %name, latency_ms = latency_ms, error = %e, "Tool execution failed");
+                                    hooks.on_error(&name, &e.to_string(), channel_name);
                                     if let Some(metrics) = usage_metrics.as_ref() {
                                         metrics.record_error();
                                     }
-                                    format!("Error: {}", e)
+                                    (format!("Error: {}", e), false)
                                 }
                             }
                         };
+                        metrics_collector.record_tool_call(&name, tool_start.elapsed(), success);
 
                         // Sanitize the result before feeding back to LLM
                         let sanitized = crate::utils::sanitize::sanitize_tool_result(
@@ -383,6 +445,12 @@ impl AgentLoop {
                 tools.definitions()
             };
 
+            // Check token budget before next LLM call
+            if self.token_budget.is_exceeded() {
+                info!(budget = %self.token_budget.summary(), "Token budget exceeded during tool loop");
+                break;
+            }
+
             // Call LLM again with tool results -- provider lock NOT held
             let messages: Vec<_> = self
                 .context_builder
@@ -397,6 +465,12 @@ impl AgentLoop {
             if let (Some(metrics), Some(usage)) = (usage_metrics.as_ref(), response.usage.as_ref())
             {
                 metrics.record_tokens(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+            }
+            if let Some(usage) = response.usage.as_ref() {
+                metrics_collector
+                    .record_tokens(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+                self.token_budget
+                    .record(usage.prompt_tokens as u64, usage.completion_tokens as u64);
             }
         }
 
@@ -444,6 +518,7 @@ impl AgentLoop {
                     .ok_or_else(|| ZeptoError::Provider("No provider configured".into()))?,
             )
         };
+        let metrics_collector = Arc::clone(&self.metrics_collector);
 
         let mut session = self.session_manager.get_or_create(&msg.session_key).await?;
         let messages = self
@@ -460,10 +535,22 @@ impl AgentLoop {
             .with_temperature(self.config.agents.defaults.temperature);
         let model = Some(self.config.agents.defaults.model.as_str());
 
+        // Check token budget before first LLM call
+        if self.token_budget.is_exceeded() {
+            return Err(ZeptoError::Provider(format!(
+                "Token budget exceeded: {}",
+                self.token_budget.summary()
+            )));
+        }
+
         // First call: non-streaming to see if there are tool calls
         let mut response = provider
             .chat(messages, tool_definitions.clone(), model, options.clone())
             .await?;
+        if let Some(usage) = response.usage.as_ref() {
+            self.token_budget
+                .record(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+        }
 
         session.add_message(Message::user(&msg.content));
 
@@ -494,6 +581,7 @@ impl AgentLoop {
                 .with_channel(&msg.channel, &msg.chat_id)
                 .with_workspace(&workspace_str);
 
+            let approval_gate = Arc::clone(&self.approval_gate);
             let tool_futures: Vec<_> = response
                 .tool_calls
                 .iter()
@@ -503,17 +591,35 @@ impl AgentLoop {
                     let name = tool_call.name.clone();
                     let id = tool_call.id.clone();
                     let raw_args = tool_call.arguments.clone();
+                    let metrics_collector = Arc::clone(&metrics_collector);
+                    let gate = Arc::clone(&approval_gate);
 
                     async move {
                         let args: serde_json::Value = serde_json::from_str(&raw_args)
                             .unwrap_or_else(|_| serde_json::json!({}));
-                        let result = {
+
+                        // Check approval gate before executing
+                        if gate.requires_approval(&name) {
+                            let prompt = gate.format_approval_request(&name, &args);
+                            info!(tool = %name, "Tool requires approval, blocking execution");
+                            return (
+                                id,
+                                format!(
+                                    "Tool '{}' requires user approval and was not executed. {}",
+                                    name, prompt
+                                ),
+                            );
+                        }
+
+                        let tool_start = std::time::Instant::now();
+                        let (result, success) = {
                             let tools_guard = tools.read().await;
                             match tools_guard.execute_with_context(&name, args, &ctx).await {
-                                Ok(r) => r,
-                                Err(e) => format!("Error: {}", e),
+                                Ok(r) => (r, true),
+                                Err(e) => (format!("Error: {}", e), false),
                             }
                         };
+                        metrics_collector.record_tool_call(&name, tool_start.elapsed(), success);
                         let sanitized = crate::utils::sanitize::sanitize_tool_result(
                             &result,
                             crate::utils::sanitize::DEFAULT_MAX_RESULT_BYTES,
@@ -533,6 +639,12 @@ impl AgentLoop {
                 tools.definitions()
             };
 
+            // Check token budget before next LLM call
+            if self.token_budget.is_exceeded() {
+                info!(budget = %self.token_budget.summary(), "Token budget exceeded during streaming tool loop");
+                break;
+            }
+
             let messages: Vec<_> = self
                 .context_builder
                 .build_messages(session.messages.clone(), "")
@@ -543,6 +655,12 @@ impl AgentLoop {
             response = provider
                 .chat(messages, tool_definitions, model, options.clone())
                 .await?;
+            if let Some(usage) = response.usage.as_ref() {
+                metrics_collector
+                    .record_tokens(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+                self.token_budget
+                    .record(usage.prompt_tokens as u64, usage.completion_tokens as u64);
+            }
         }
 
         // Final call: if no more tool calls, use streaming
@@ -568,6 +686,7 @@ impl AgentLoop {
             let (out_tx, out_rx) = tokio::sync::mpsc::channel::<StreamEvent>(32);
             let session_manager = Arc::clone(&self.session_manager);
             let session_clone = session.clone();
+            let metrics_collector = Arc::clone(&metrics_collector);
 
             tokio::spawn(async move {
                 let mut session = session_clone;
@@ -575,7 +694,13 @@ impl AgentLoop {
 
                 while let Some(event) = stream_rx.recv().await {
                     match &event {
-                        StreamEvent::Done { content, .. } => {
+                        StreamEvent::Done { content, usage } => {
+                            if let Some(usage) = usage.as_ref() {
+                                metrics_collector.record_tokens(
+                                    usage.prompt_tokens as u64,
+                                    usage.completion_tokens as u64,
+                                );
+                            }
                             session.add_message(Message::assistant(content));
                             let _ = session_manager.save(&session).await;
                             let _ = out_tx.send(event).await;
@@ -887,6 +1012,11 @@ impl AgentLoop {
     /// Check if streaming is enabled.
     pub fn is_streaming(&self) -> bool {
         self.streaming.load(Ordering::SeqCst)
+    }
+
+    /// Get a reference to the token budget tracker.
+    pub fn token_budget(&self) -> &TokenBudget {
+        &self.token_budget
     }
 }
 
