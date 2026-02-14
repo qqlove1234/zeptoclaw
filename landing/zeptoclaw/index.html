@@ -13,8 +13,8 @@
             --bg-primary: #0a0a0b;
             --bg-secondary: #111113;
             --bg-tertiary: #1a1a1d;
-            --accent: #f24e1e;
-            --accent-hover: #ff6b3d;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
             --text-primary: #fafafa;
             --text-secondary: #a1a1aa;
             --text-muted: #71717a;
@@ -127,7 +127,7 @@
             transform: translate(-50%, -50%);
             width: 800px;
             height: 800px;
-            background: radial-gradient(circle, rgba(242, 78, 30, 0.15) 0%, transparent 70%);
+            background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
             pointer-events: none;
         }
 
@@ -656,7 +656,7 @@
 
         .family-card.current {
             border-color: var(--accent);
-            background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(242, 78, 30, 0.05) 100%);
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, rgba(59, 130, 246, 0.05) 100%);
         }
 
         .family-card.current::after {
@@ -1001,25 +1001,21 @@
     <section class="family" id="family">
         <div class="container">
             <div class="section-header">
-                <div class="section-tag">The OpenClaw Family</div>
-                <h2>One Vision, Four Languages</h2>
+                <div class="section-tag">The Claw Ecosystem</div>
+                <h2>Standing on the Shoulders of Giants</h2>
             </div>
 
             <div class="family-story">
                 <p>
-                    It started with <span class="highlight-text">OpenClaw</span> — a TypeScript
-                    powerhouse with 52+ modules and 12 channels. It could do everything. But
-                    "everything" comes at a cost: complexity, dependencies, and resource bloat.
+                    The open-source AI agent ecosystem has been evolving fast.
+                    <span class="highlight-text">OpenClaw</span> proved that a TypeScript framework
+                    could handle 52+ modules and 12 channels. <span class="highlight-text">NanoClaw</span>
+                    showed that ~5,000 lines is enough for a forkable, hackable assistant.
+                    <span class="highlight-text">PicoClaw</span> pushed the boundary to $10 hardware.
                 </p>
                 <p>
-                    Then came <span class="highlight-text">NanoClaw</span>
-                    — a forkable, understandable assistant in ~5,000 lines of TypeScript.
-                    Then <span class="highlight-text">PicoClaw</span> pushed further — a Go binary
-                    that runs on a $10 RISC-V board with under 10MB RAM.
-                </p>
-                <p>
-                    <span class="highlight-text">ZeptoClaw</span> is the final form: Rust's memory
-                    safety, async performance, and container isolation — built for teams who need
+                    <span class="highlight-text">ZeptoClaw</span> takes a different path: Rust's memory
+                    safety, async performance, and container isolation — purpose-built for teams who need
                     security and multi-tenancy without sacrificing simplicity.
                 </p>
             </div>

@@ -6,7 +6,7 @@
   <strong>AI assistant framework that fits in 5 megabytes.</strong>
 </p>
 <p align="center">
-  <a href="https://zeptoclaw.pages.dev/docs/"><img src="https://img.shields.io/badge/docs-zeptoclaw.pages.dev-f24e1e?style=for-the-badge&logo=bookstack&logoColor=white" alt="Documentation"></a>
+  <a href="https://zeptoclaw.pages.dev/docs/"><img src="https://img.shields.io/badge/docs-zeptoclaw.pages.dev-3b82f6?style=for-the-badge&logo=bookstack&logoColor=white" alt="Documentation"></a>
 </p>
 <p align="center">
   <a href="https://github.com/qhkm/zeptoclaw/actions/workflows/ci.yml"><img src="https://github.com/qhkm/zeptoclaw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -34,12 +34,24 @@ $ zeptoclaw agent --stream -m "Analyze our API for security issues"
 A single Rust binary with streaming LLM responses, agent swarms, plugins, batch processing, 5 channels, and container isolation. 17 tools out of the box — extend with JSON plugins or the `Tool` trait.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/binary-~5MB-f24e1e" alt="~5MB binary">
-  <img src="https://img.shields.io/badge/startup-~50ms-f24e1e" alt="~50ms startup">
-  <img src="https://img.shields.io/badge/RAM-~6MB-f24e1e" alt="~6MB RAM">
-  <img src="https://img.shields.io/badge/tests-1%2C100%2B-f24e1e" alt="1,100+ tests">
-  <img src="https://img.shields.io/badge/crate-single-f24e1e" alt="single crate">
+  <img src="https://img.shields.io/badge/binary-~5MB-3b82f6" alt="~5MB binary">
+  <img src="https://img.shields.io/badge/startup-~50ms-3b82f6" alt="~50ms startup">
+  <img src="https://img.shields.io/badge/RAM-~6MB-3b82f6" alt="~6MB RAM">
+  <img src="https://img.shields.io/badge/tests-1%2C100%2B-3b82f6" alt="1,100+ tests">
+  <img src="https://img.shields.io/badge/crate-single-3b82f6" alt="single crate">
 </p>
+
+## Why ZeptoClaw
+
+Most AI agent frameworks ask you to choose: powerful or lightweight. Feature-rich or easy to deploy. Secure or simple.
+
+We refused to choose.
+
+**ZeptoClaw** started as the question: *what if you could run hundreds of isolated AI agents on a single $5 VPS?* Not toy agents — real ones with shell access, web browsing, file management, scheduled tasks, and memory that persists across conversations.
+
+The answer is Rust. No garbage collector. No runtime. No 200MB Docker images. Just a 5MB binary that starts in 50ms, uses 6MB of RAM per tenant, and ships with container isolation so your agent can't `rm -rf /` your server.
+
+ZeptoClaw is the one you deploy when security and multi-tenancy matter more than anything else.
 
 ## Install
 
@@ -118,16 +130,9 @@ zeptoclaw gateway --containerized
 
 > **Full documentation** — [zeptoclaw.pages.dev/docs](https://zeptoclaw.pages.dev/docs/) covers configuration, environment variables, CLI reference, deployment guides, and more.
 
-## The OpenClaw Family
+## Inspired By
 
-One vision, four languages. Pick the right tool for the job.
-
-| | OpenClaw | NanoClaw | PicoClaw | **ZeptoClaw** |
-|---|---|---|---|---|
-| **Language** | TypeScript | TypeScript | Go | **Rust** |
-| **Philosophy** | Comprehensive | Hackable | Tiny | **Secure** |
-| **Size** | 52+ modules | ~5K LOC | <10MB RAM | **~5MB binary** |
-| **Best for** | Feature seekers | Developers who read code | Edge & IoT | **Production & enterprise** |
+ZeptoClaw is inspired by projects in the open-source AI agent ecosystem — OpenClaw, NanoClaw, and PicoClaw — each taking a different approach to the same problem. ZeptoClaw's contribution is Rust's memory safety, async performance, and container isolation for production multi-tenant deployments.
 
 ## Development
 
@@ -144,5 +149,8 @@ Apache 2.0 — see [LICENSE](LICENSE)
 ---
 
 <p align="center">
-  Built by <a href="https://github.com/qhkm">Kitakod Ventures</a> &bull; Part of the <strong>OpenClaw</strong> family
+  <em>ZeptoClaw — Because your AI agent shouldn't need more RAM than your text editor.</em>
+</p>
+<p align="center">
+  Built by <a href="https://github.com/qhkm">Kitakod Ventures</a>
 </p>
