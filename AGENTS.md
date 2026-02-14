@@ -24,7 +24,7 @@ If you skip this, the next agent starts with stale context and wastes time.
 - Benchmarks: `benches/message_bus.rs`
 - Integration tests: `tests/integration.rs`
 - Codebase: ~38,000+ lines of Rust
-- Tests: 953 lib + 68 integration + 98 doc = 1,119 total
+- Tests: 968 lib + 68 integration + 98 doc = 1,134 total
 
 ## Current State (2026-02-14)
 

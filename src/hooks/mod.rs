@@ -43,11 +43,15 @@
 //!     ..Default::default()
 //! };
 //! let engine = HookEngine::new(config);
-//! let result = engine.before_tool("shell", &serde_json::json!({}), "telegram");
+//! let result = engine.before_tool("shell", &serde_json::json!({}), "telegram", "chat-1");
 //! assert!(matches!(result, HookResult::Block(_)));
 //! ```
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
+
+use crate::bus::{MessageBus, OutboundMessage};
 
 // ---------------------------------------------------------------------------
 // Hook action enum
@@ -61,7 +65,7 @@ pub enum HookAction {
     Log,
     /// Block the tool from executing (before_tool only).
     Block,
-    /// Send a notification to a channel (logged for now).
+    /// Send a notification message via the message bus.
     Notify,
 }
 
@@ -86,9 +90,11 @@ pub struct HookRule {
     pub level: Option<String>,
     /// Custom message for `Block` action.
     pub message: Option<String>,
-    /// Target channel name for `Notify` action (future use).
+    /// Optional target channel name for `Notify` action.
+    /// Falls back to current tool call channel when unset.
     pub channel: Option<String>,
-    /// Target chat ID for `Notify` action (future use).
+    /// Optional target chat ID for `Notify` action.
+    /// Falls back to current tool call chat_id when unset.
     pub chat_id: Option<String>,
 }
 
@@ -169,12 +175,95 @@ pub enum HookResult {
 /// 3. `on_error` — after failed tool execution
 pub struct HookEngine {
     config: HooksConfig,
+    bus: Option<Arc<MessageBus>>,
 }
 
 impl HookEngine {
     /// Create a new HookEngine from configuration.
     pub fn new(config: HooksConfig) -> Self {
-        Self { config }
+        Self { config, bus: None }
+    }
+
+    /// Attach a message bus for `notify` actions.
+    pub fn with_bus(mut self, bus: Arc<MessageBus>) -> Self {
+        self.bus = Some(bus);
+        self
+    }
+
+    fn resolve_notify_target(
+        rule: &HookRule,
+        current_channel: &str,
+        current_chat_id: &str,
+    ) -> Option<(String, String)> {
+        let target_channel = rule
+            .channel
+            .as_deref()
+            .unwrap_or(current_channel)
+            .trim()
+            .to_string();
+        let target_chat_id = rule
+            .chat_id
+            .as_deref()
+            .unwrap_or(current_chat_id)
+            .trim()
+            .to_string();
+
+        if target_channel.is_empty() || target_chat_id.is_empty() {
+            return None;
+        }
+
+        Some((target_channel, target_chat_id))
+    }
+
+    fn emit_notify(
+        &self,
+        hook: &str,
+        tool_name: &str,
+        rule: &HookRule,
+        current_channel: &str,
+        current_chat_id: &str,
+        message: String,
+    ) {
+        let Some(bus) = self.bus.as_ref() else {
+            tracing::debug!(
+                hook = hook,
+                tool = tool_name,
+                "Hook notify skipped: message bus not configured"
+            );
+            return;
+        };
+
+        let Some((target_channel, target_chat_id)) =
+            Self::resolve_notify_target(rule, current_channel, current_chat_id)
+        else {
+            tracing::warn!(
+                hook = hook,
+                tool = tool_name,
+                channel = current_channel,
+                chat_id = current_chat_id,
+                "Hook notify skipped: missing channel/chat_id target"
+            );
+            return;
+        };
+
+        let outbound = OutboundMessage::new(&target_channel, &target_chat_id, &message);
+        match bus.try_publish_outbound(outbound) {
+            Ok(()) => tracing::info!(
+                hook = hook,
+                tool = tool_name,
+                target_channel = %target_channel,
+                target_chat_id = %target_chat_id,
+                "Hook notify dispatched"
+            ),
+            Err(error) => tracing::warn!(
+                hook = hook,
+                tool = tool_name,
+                target_channel = %target_channel,
+                target_chat_id = %target_chat_id,
+                error = %error,
+                "Hook notify failed to publish"
+            ),
+        }
     }
 
     /// Evaluate before_tool hooks. Returns Block if any matching rule blocks.
@@ -186,6 +275,7 @@ impl HookEngine {
         tool_name: &str,
         _args: &serde_json::Value,
         channel: &str,
+        chat_id: &str,
     ) -> HookResult {
         if !self.config.enabled {
             return HookResult::Continue;
@@ -246,12 +336,13 @@ impl HookEngine {
                     return HookResult::Block(msg);
                 }
                 HookAction::Notify => {
-                    tracing::info!(
-                        hook = "before_tool",
-                        tool = tool_name,
-                        channel = channel,
-                        "Hook: notify (logged)"
-                    );
+                    let message = rule.message.clone().unwrap_or_else(|| {
+                        format!(
+                            "Hook notify (before_tool): tool '{}' called in {}:{}",
+                            tool_name, channel, chat_id
+                        )
+                    });
+                    self.emit_notify("before_tool", tool_name, rule, channel, chat_id, message);
                 }
             }
         }
@@ -266,6 +357,7 @@ impl HookEngine {
         _result: &str,
         elapsed: std::time::Duration,
         channel: &str,
+        chat_id: &str,
     ) {
         if !self.config.enabled {
             return;
@@ -297,18 +389,21 @@ impl HookEngine {
                 }
                 HookAction::Block => {} // Block is a no-op in after_tool
                 HookAction::Notify => {
-                    tracing::info!(
-                        hook = "after_tool",
-                        tool = tool_name,
-                        "Hook: notify (logged)"
-                    );
+                    let ms = elapsed.as_millis();
+                    let message = rule.message.clone().unwrap_or_else(|| {
+                        format!(
+                            "Hook notify (after_tool): tool '{}' succeeded in {}ms ({}:{})",
+                            tool_name, ms, channel, chat_id
+                        )
+                    });
+                    self.emit_notify("after_tool", tool_name, rule, channel, chat_id, message);
                 }
             }
         }
     }
 
     /// Evaluate on_error hooks (logging only, no blocking).
-    pub fn on_error(&self, tool_name: &str, error: &str, channel: &str) {
+    pub fn on_error(&self, tool_name: &str, error: &str, channel: &str, chat_id: &str) {
         if !self.config.enabled {
             return;
         }
@@ -344,12 +439,13 @@ impl HookEngine {
                 }
                 HookAction::Block => {} // Block is a no-op in on_error
                 HookAction::Notify => {
-                    tracing::info!(
-                        hook = "on_error",
-                        tool = tool_name,
-                        error = error,
-                        "Hook: error notify (logged)"
-                    );
+                    let message = rule.message.clone().unwrap_or_else(|| {
+                        format!(
+                            "Hook notify (on_error): tool '{}' failed: {} ({}:{})",
+                            tool_name, error, channel, chat_id
+                        )
+                    });
+                    self.emit_notify("on_error", tool_name, rule, channel, chat_id, message);
                 }
             }
         }
@@ -483,7 +579,7 @@ mod tests {
     fn test_hook_engine_disabled_does_nothing() {
         let config = HooksConfig::default();
         let engine = HookEngine::new(config);
-        let result = engine.before_tool("shell", &serde_json::json!({}), "telegram");
+        let result = engine.before_tool("shell", &serde_json::json!({}), "telegram", "chat1");
         assert_eq!(result, HookResult::Continue);
     }
 
@@ -500,7 +596,7 @@ mod tests {
             ..Default::default()
         };
         let engine = HookEngine::new(config);
-        let result = engine.before_tool("shell", &serde_json::json!({"cmd": "ls"}), "cli");
+        let result = engine.before_tool("shell", &serde_json::json!({"cmd": "ls"}), "cli", "cli");
         assert_eq!(result, HookResult::Continue);
     }
 
@@ -520,18 +616,18 @@ mod tests {
         let engine = HookEngine::new(config);
 
         // Should block shell on telegram
-        let result = engine.before_tool("shell", &serde_json::json!({}), "telegram");
+        let result = engine.before_tool("shell", &serde_json::json!({}), "telegram", "chat1");
         assert!(matches!(result, HookResult::Block(_)));
         if let HookResult::Block(msg) = result {
             assert_eq!(msg, "Shell disabled on Telegram");
         }
 
         // Should NOT block shell on CLI
-        let result = engine.before_tool("shell", &serde_json::json!({}), "cli");
+        let result = engine.before_tool("shell", &serde_json::json!({}), "cli", "chat1");
         assert_eq!(result, HookResult::Continue);
 
         // Should NOT block echo on telegram
-        let result = engine.before_tool("echo", &serde_json::json!({}), "telegram");
+        let result = engine.before_tool("echo", &serde_json::json!({}), "telegram", "chat1");
         assert_eq!(result, HookResult::Continue);
     }
 
@@ -547,7 +643,7 @@ mod tests {
             ..Default::default()
         };
         let engine = HookEngine::new(config);
-        let result = engine.before_tool("shell", &serde_json::json!({}), "cli");
+        let result = engine.before_tool("shell", &serde_json::json!({}), "cli", "chat1");
         if let HookResult::Block(msg) = result {
             assert!(msg.contains("shell"));
             assert!(msg.contains("blocked by hook"));
@@ -577,7 +673,7 @@ mod tests {
             ..Default::default()
         };
         let engine = HookEngine::new(config);
-        let result = engine.before_tool("shell", &serde_json::json!({}), "cli");
+        let result = engine.before_tool("shell", &serde_json::json!({}), "cli", "chat1");
         assert!(matches!(result, HookResult::Block(_)));
     }
 
@@ -599,6 +695,7 @@ mod tests {
             "result text",
             std::time::Duration::from_millis(50),
             "cli",
+            "chat1",
         );
     }
 
@@ -615,7 +712,7 @@ mod tests {
             ..Default::default()
         };
         let engine = HookEngine::new(config);
-        engine.on_error("shell", "command not found", "cli");
+        engine.on_error("shell", "command not found", "cli", "chat1");
     }
 
     #[test]
@@ -628,5 +725,98 @@ mod tests {
 
         let disabled = HookEngine::new(HooksConfig::default());
         assert!(!disabled.is_enabled());
+    }
+
+    #[tokio::test]
+    async fn test_hook_engine_notify_before_tool_publishes_message() {
+        use tokio::time::{timeout, Duration};
+
+        let bus = Arc::new(MessageBus::new());
+        let config = HooksConfig {
+            enabled: true,
+            before_tool: vec![HookRule {
+                action: HookAction::Notify,
+                tools: vec!["shell".to_string()],
+                message: Some("manual approval required".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let engine = HookEngine::new(config).with_bus(Arc::clone(&bus));
+
+        let result = engine.before_tool("shell", &serde_json::json!({}), "telegram", "chat77");
+        assert_eq!(result, HookResult::Continue);
+
+        let outbound = timeout(Duration::from_millis(300), bus.consume_outbound())
+            .await
+            .expect("timed out waiting for outbound message")
+            .expect("expected outbound message");
+        assert_eq!(outbound.channel, "telegram");
+        assert_eq!(outbound.chat_id, "chat77");
+        assert_eq!(outbound.content, "manual approval required");
+    }
+
+    #[tokio::test]
+    async fn test_hook_engine_notify_after_tool_uses_override_target() {
+        use tokio::time::{timeout, Duration};
+
+        let bus = Arc::new(MessageBus::new());
+        let config = HooksConfig {
+            enabled: true,
+            after_tool: vec![HookRule {
+                action: HookAction::Notify,
+                tools: vec!["*".to_string()],
+                channel: Some("slack".to_string()),
+                chat_id: Some("ops-room".to_string()),
+                message: Some("tool completed".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let engine = HookEngine::new(config).with_bus(Arc::clone(&bus));
+
+        engine.after_tool(
+            "echo",
+            "ok",
+            std::time::Duration::from_millis(15),
+            "telegram",
+            "chat77",
+        );
+
+        let outbound = timeout(Duration::from_millis(300), bus.consume_outbound())
+            .await
+            .expect("timed out waiting for outbound message")
+            .expect("expected outbound message");
+        assert_eq!(outbound.channel, "slack");
+        assert_eq!(outbound.chat_id, "ops-room");
+        assert_eq!(outbound.content, "tool completed");
+    }
+
+    #[tokio::test]
+    async fn test_hook_engine_notify_on_error_default_message_contains_error() {
+        use tokio::time::{timeout, Duration};
+
+        let bus = Arc::new(MessageBus::new());
+        let config = HooksConfig {
+            enabled: true,
+            on_error: vec![HookRule {
+                action: HookAction::Notify,
+                tools: vec!["shell".to_string()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let engine = HookEngine::new(config).with_bus(Arc::clone(&bus));
+
+        engine.on_error("shell", "permission denied", "telegram", "chat77");
+
+        let outbound = timeout(Duration::from_millis(300), bus.consume_outbound())
+            .await
+            .expect("timed out waiting for outbound message")
+            .expect("expected outbound message");
+        assert_eq!(outbound.channel, "telegram");
+        assert_eq!(outbound.chat_id, "chat77");
+        assert!(outbound.content.contains("permission denied"));
+        assert!(outbound.content.contains("shell"));
     }
 }

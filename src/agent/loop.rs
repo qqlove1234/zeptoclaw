@@ -360,7 +360,10 @@ impl AgentLoop {
                 .with_workspace(&workspace_str);
 
             let approval_gate = Arc::clone(&self.approval_gate);
-            let hook_engine = Arc::new(crate::hooks::HookEngine::new(self.config.hooks.clone()));
+            let hook_engine = Arc::new(
+                crate::hooks::HookEngine::new(self.config.hooks.clone())
+                    .with_bus(Arc::clone(&self.bus)),
+            );
             let tool_futures: Vec<_> = response
                 .tool_calls
                 .iter()
@@ -386,7 +389,10 @@ impl AgentLoop {
 
                         // Check hooks before executing
                         let channel_name = ctx.channel.as_deref().unwrap_or("cli");
-                        if let crate::hooks::HookResult::Block(msg) = hooks.before_tool(&name, &args, channel_name) {
+                        let chat_id = ctx.chat_id.as_deref().unwrap_or(channel_name);
+                        if let crate::hooks::HookResult::Block(msg) =
+                            hooks.before_tool(&name, &args, channel_name, chat_id)
+                        {
                             return (id, format!("Tool '{}' blocked by hook: {}", name, msg));
                         }
 
@@ -405,14 +411,14 @@ impl AgentLoop {
                                     let elapsed = tool_start.elapsed();
                                     let latency_ms = elapsed.as_millis() as u64;
                                     debug!(tool = %name, latency_ms = latency_ms, "Tool executed successfully");
-                                    hooks.after_tool(&name, &r, elapsed, channel_name);
+                                    hooks.after_tool(&name, &r, elapsed, channel_name, chat_id);
                                     (r, true)
                                 }
                                 Err(e) => {
                                     let elapsed = tool_start.elapsed();
                                     let latency_ms = elapsed.as_millis() as u64;
                                     error!(tool = %name, latency_ms = latency_ms, error = %e, "Tool execution failed");
-                                    hooks.on_error(&name, &e.to_string(), channel_name);
+                                    hooks.on_error(&name, &e.to_string(), channel_name, chat_id);
                                     if let Some(metrics) = usage_metrics.as_ref() {
                                         metrics.record_error();
                                     }

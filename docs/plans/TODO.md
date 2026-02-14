@@ -103,7 +103,7 @@ After completing any feature, update these 3 files:
 ### P4 — Features
 - [ ] **Web UI** — browser-based chat interface (minimal: single HTML page with SSE)
 - [ ] **Embeddings memory** — vector search for long-term memory (inspired by Moltis)
-- [ ] **Hook notify action** — wire `Notify` hook action to actually send messages via bus (currently logs only)
+- [x] **Hook notify action** — `Notify` hook action wired to MessageBus via `HookEngine::with_bus()` + `try_publish_outbound()`, 3 new tests
 - [ ] **Pre-commit hooks** — `cargo fmt` + `cargo clippy` enforcement via `.git/hooks/pre-commit`
 
 ### P5 — Repo Hygiene
@@ -116,7 +116,7 @@ After completing any feature, update these 3 files:
 ## Stats
 
 - Codebase: ~39,000 lines of Rust
-- Tests: 953 lib + 68 integration + 98 doc = **1,119 total**
+- Tests: 968 lib + 68 integration + 98 doc = **1,134 total**
 - Tools: 17 agent tools + dynamic plugin tools
 - Channels: 4 (Telegram, Slack, Discord, Webhook)
 - Providers: 2 (Claude, OpenAI) + RetryProvider + FallbackProvider
