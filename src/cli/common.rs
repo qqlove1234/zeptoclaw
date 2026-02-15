@@ -230,8 +230,26 @@ pub(crate) async fn create_agent_with_template(
                 .collect::<HashSet<_>>()
         })
         .unwrap_or_default();
+
+    // Resolve tool profile: config default > template override > all tools
+    let profile_tools: Option<HashSet<String>> = config
+        .agents
+        .defaults
+        .tool_profile
+        .as_ref()
+        .and_then(|name| config.tool_profiles.get(name))
+        .and_then(|tools| tools.as_ref())
+        .map(|names| names.iter().map(|n| n.to_ascii_lowercase()).collect());
+
     let tool_enabled = |name: &str| {
         let key = name.to_ascii_lowercase();
+        // Profile filter (if active)
+        if let Some(ref profile) = profile_tools {
+            if !profile.contains(&key) {
+                return false;
+            }
+        }
+        // Template allowed filter
         if let Some(allowed) = &allowed_tools {
             if !allowed.contains(&key) {
                 return false;
