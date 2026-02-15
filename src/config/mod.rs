@@ -1120,8 +1120,10 @@ mod tests {
         let path = PathBuf::from("/nonexistent/path/config.json");
         let config = Config::load_from_path(&path).unwrap();
 
-        // Should return defaults
-        assert_eq!(config.agents.defaults.model, "claude-sonnet-4-5-20250929");
+        // Should return defaults (check fields not affected by env var overrides)
+        assert_eq!(config.agents.defaults.max_tool_iterations, 20);
+        assert_eq!(config.agents.defaults.agent_timeout_secs, 300);
+        assert!(!config.agents.defaults.model.is_empty());
     }
 
     #[test]
