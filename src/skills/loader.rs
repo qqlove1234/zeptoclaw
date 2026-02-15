@@ -689,7 +689,9 @@ Use wttr.in.
 
         let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
         let skill = loader.load_skill("scripted").unwrap();
-        assert!(skill.content.contains(&skill_dir.to_string_lossy().to_string()));
+        assert!(skill
+            .content
+            .contains(&skill_dir.to_string_lossy().to_string()));
         assert!(!skill.content.contains("{baseDir}"));
     }
 
