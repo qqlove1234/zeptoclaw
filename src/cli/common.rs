@@ -248,6 +248,22 @@ pub(crate) async fn create_agent_with_template(
 
     let skills_prompt = build_skills_prompt(&config);
     let mut context_builder = ContextBuilder::new();
+
+    // Load SOUL.md from workspace if present
+    let soul_path = config.workspace_path().join("SOUL.md");
+    if soul_path.is_file() {
+        match std::fs::read_to_string(&soul_path) {
+            Ok(content) => {
+                let content = content.trim();
+                if !content.is_empty() {
+                    context_builder = context_builder.with_soul(content);
+                    info!("Loaded SOUL.md from {}", soul_path.display());
+                }
+            }
+            Err(e) => warn!("Failed to read SOUL.md at {}: {}", soul_path.display(), e),
+        }
+    }
+
     if let Some(tpl) = &template {
         context_builder = context_builder.with_system_prompt(&tpl.system_prompt);
     }

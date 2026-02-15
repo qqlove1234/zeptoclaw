@@ -11,8 +11,8 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZeptoClaw — Ultra-Lightweight AI Assistant</title>
-    <meta name="description" content="Ultra-lightweight AI agent framework in ~5MB. Streaming, agent swarms, plugins, batch mode, 4 channels, container isolation, 1000+ tests.">
+    <title>ZeptoClaw — A Complete AI Agent Runtime in 4MB</title>
+    <meta name="description" content="A complete AI agent runtime in 4MB. The best of OpenClaw's integrations, NanoClaw's security, and PicoClaw's minimalism — without their tradeoffs.">
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1147,17 +1147,17 @@
                 <div class="hero-mascot-wrap">
                     <img class="hero-mascot" src="mascot-no-bg.png" alt="Zippy — ZeptoClaw mascot">
                 </div>
-                <div class="badge">v0.2.0 — Now Available</div>
-                <h1>AI Agent Framework<br>in <span class="highlight">5 Megabytes</span></h1>
+                <div class="badge">v0.3.1 — Available on crates.io</div>
+                <h1>A Complete AI Agent Runtime.<br>In <span class="highlight">4MB</span>.</h1>
                 <p class="hero-subtitle">
-                    Deploy an AI assistant in 60 seconds. One Rust binary with streaming,
-                    agent swarms, plugins, and container isolation.
+                    We studied the best agent frameworks — and their tradeoffs.
+                    Then we built one binary that gets it all right.
                 </p>
                 <div class="hero-stats">
-                    <div class="hero-stat">⚡ <span>~5MB</span> binary</div>
-                    <div class="hero-stat">🛠️ <span>17</span> tools</div>
+                    <div class="hero-stat">⚡ <span>~4MB</span> binary</div>
+                    <div class="hero-stat">🔌 <span>8</span> providers</div>
                     <div class="hero-stat">📡 <span>5</span> channels</div>
-                    <div class="hero-stat">🧪 <span>1,100+</span> tests</div>
+                    <div class="hero-stat">🧪 <span>1,300+</span> tests</div>
                 </div>
                 <div class="hero-cta">
                     <a href="#install" class="btn btn-primary">Install ZeptoClaw</a>
@@ -1188,10 +1188,10 @@
         <div class="container">
             <div class="section-header">
                 <div class="section-tag">Features</div>
-                <h2>Small Binary, Big Capabilities</h2>
+                <h2>Everything. In One Binary.</h2>
                 <p class="section-subtitle">
-                    20+ modules, 17 tools, plugins, streaming, agent swarms, and batch mode
-                    — in a single binary smaller than most app icons.
+                    OpenClaw's integrations without the 100MB. NanoClaw's security without the TypeScript bundle.
+                    PicoClaw's size without the bare-bones feature set.
                 </p>
             </div>
 
@@ -1229,7 +1229,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">📦</div>
                     <h3>Container Isolation</h3>
-                    <p>Execute shell commands in Docker or Apple Container for security. Falls back to native runtime when containers aren't available.</p>
+                    <p>Native runtime by default. Opt into Docker or Apple Container isolation with <code>--containerized</code> for full sandboxing.</p>
                 </div>
 
                 <div class="feature-card">
@@ -1275,21 +1275,22 @@
         <div class="container">
             <div class="section-header">
                 <div class="section-tag">The Claw Ecosystem</div>
-                <h2>Standing on the Shoulders of Giants</h2>
+                <h2>The Best of Every Claw</h2>
             </div>
 
             <div class="family-story">
                 <p>
-                    The open-source AI agent ecosystem has been evolving fast.
-                    <span class="highlight-text">OpenClaw</span> proved that a TypeScript framework
-                    could handle 52+ modules and 12 channels. <span class="highlight-text">NanoClaw</span>
-                    showed that ~5,000 lines is enough for a forkable, hackable assistant.
-                    <span class="highlight-text">PicoClaw</span> pushed the boundary to $10 hardware.
+                    We studied what works — and what doesn't.
+                    <span class="highlight-text">OpenClaw</span> proved a framework can handle
+                    12 channels and 100+ skills. But it costs 100MB and 400K lines.
+                    <span class="highlight-text">NanoClaw</span> proved security-first is possible.
+                    But it's still 50MB of TypeScript.
+                    <span class="highlight-text">PicoClaw</span> proved agents can run on $10 hardware.
+                    But it stripped out everything to get there.
                 </p>
                 <p>
-                    <span class="highlight-text">ZeptoClaw</span> takes a different path: Rust's memory
-                    safety, async performance, and container isolation — purpose-built for teams who need
-                    security and multi-tenancy without sacrificing simplicity.
+                    <span class="highlight-text">ZeptoClaw</span> took notes. The integrations,
+                    the security, the size discipline — without the tradeoffs each one made.
                 </p>
             </div>
 
@@ -1333,9 +1334,9 @@
                 <div class="family-card current">
                     <h4>ZeptoClaw</h4>
                     <div class="family-lang">Rust</div>
-                    <p>The secure one. Streaming, swarms, plugins, batch mode, 1000+ tests.</p>
+                    <p>The one that took notes. Security, integrations, and minimalism — without the tradeoffs.</p>
                     <ul class="family-traits">
-                        <li>~5MB binary, 1000+ tests</li>
+                        <li>~4MB binary, 1,300+ tests</li>
                         <li>17 tools + plugin system</li>
                         <li>5 channels + agent swarms</li>
                         <li>Container isolation</li>
@@ -1414,7 +1415,7 @@
                 <div class="audience-card">
                     <div class="audience-icon">🔒</div>
                     <h4>Security-Conscious Teams</h4>
-                    <p>Container isolation, SSRF prevention, path traversal detection, shell command blocklists. Security by default.</p>
+                    <p>SSRF prevention, path traversal detection, and shell blocklists by default. Optional container isolation for full sandboxing.</p>
                 </div>
 
                 <div class="audience-card">
@@ -1429,7 +1430,7 @@
     <section class="stats">
         <div class="stats-grid">
             <div class="stat-item">
-                <div class="stat-value" data-count="5" data-prefix="~" data-suffix="MB">~5MB</div>
+                <div class="stat-value" data-count="4" data-prefix="~" data-suffix="MB">~4MB</div>
                 <div class="stat-label">Release Binary</div>
             </div>
             <div class="stat-item">
@@ -1441,7 +1442,7 @@
                 <div class="stat-label">Tools + Plugins</div>
             </div>
             <div class="stat-item">
-                <div class="stat-value" data-count="1000" data-suffix="+">1000+</div>
+                <div class="stat-value" data-count="1300" data-suffix="+">1300+</div>
                 <div class="stat-label">Tests Passing</div>
             </div>
         </div>
@@ -1546,7 +1547,7 @@
                     <div class="logo-icon" style="width: 24px; height: 24px;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><line x1="24" y1="18" x2="18" y2="6" stroke="#67e8f9" stroke-width="2.5" stroke-linecap="round"/><line x1="40" y1="18" x2="46" y2="6" stroke="#67e8f9" stroke-width="2.5" stroke-linecap="round"/><circle cx="18" cy="5" r="2.5" fill="#67e8f9"/><circle cx="46" cy="5" r="2.5" fill="#67e8f9"/><ellipse cx="32" cy="38" rx="24" ry="20" fill="#374151"/><ellipse cx="32" cy="32" rx="20" ry="14" fill="#4a5568"/><ellipse cx="32" cy="36" rx="22" ry="16" fill="#3d4b5e"/><ellipse cx="22" cy="36" rx="8" ry="8.5" fill="#1e293b"/><ellipse cx="42" cy="36" rx="8" ry="8.5" fill="#1e293b"/><circle class="claw-eye" cx="22" cy="36" r="6" fill="#3b82f6"/><circle class="claw-eye" cx="42" cy="36" r="6" fill="#3b82f6"/><circle class="claw-pupil" cx="22" cy="36" r="3.5" fill="#1d4ed8"/><circle class="claw-pupil" cx="42" cy="36" r="3.5" fill="#1d4ed8"/><circle cx="20" cy="34" r="1.8" fill="#fff" opacity="0.9"/><circle cx="40" cy="34" r="1.8" fill="#fff" opacity="0.9"/><ellipse cx="32" cy="48" rx="4" ry="2" fill="#f472b6"/></svg></div>
                     ZeptoClaw
                 </div>
-                <div class="footer-tagline">Ultra-lightweight AI assistant framework</div>
+                <div class="footer-tagline">A complete AI agent runtime in 4MB</div>
             </div>
             <div class="footer-links">
                 <a href="docs/">Documentation</a>

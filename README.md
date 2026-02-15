@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">ZeptoClaw</h1>
 <p align="center">
-  <strong>AI assistant framework that fits in 5 megabytes.</strong>
+  <strong>A complete AI agent runtime. In 4MB.</strong>
 </p>
 <p align="center">
   <a href="https://zeptoclaw.com/docs/"><img src="https://img.shields.io/badge/docs-zeptoclaw.com-3b82f6?style=for-the-badge&logo=bookstack&logoColor=white" alt="Documentation"></a>
@@ -31,27 +31,42 @@ $ zeptoclaw agent --stream -m "Analyze our API for security issues"
 ✓ Analysis complete in 4.2s
 ```
 
-A single Rust binary with streaming LLM responses, agent swarms, plugins, batch processing, 5 channels, and container isolation. 17 tools out of the box — extend with JSON plugins or the `Tool` trait.
+We studied the best agent frameworks — and their tradeoffs. OpenClaw's integrations without the 100MB. NanoClaw's security without the TypeScript bundle. PicoClaw's size without the bare-bones feature set. One Rust binary with 17 tools, 5 channels, 8 providers, and container isolation.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/binary-~5MB-3b82f6" alt="~5MB binary">
+  <img src="https://img.shields.io/badge/binary-~4MB-3b82f6" alt="~4MB binary">
   <img src="https://img.shields.io/badge/startup-~50ms-3b82f6" alt="~50ms startup">
   <img src="https://img.shields.io/badge/RAM-~6MB-3b82f6" alt="~6MB RAM">
-  <img src="https://img.shields.io/badge/tests-1%2C100%2B-3b82f6" alt="1,100+ tests">
-  <img src="https://img.shields.io/badge/crate-single-3b82f6" alt="single crate">
+  <img src="https://img.shields.io/badge/tests-1%2C300%2B-3b82f6" alt="1,300+ tests">
+  <img src="https://img.shields.io/badge/providers-8-3b82f6" alt="8 providers">
 </p>
 
 ## Why ZeptoClaw
 
-Most AI agent frameworks ask you to choose: powerful or lightweight. Feature-rich or easy to deploy. Secure or simple.
+We studied what works — and what doesn't.
 
-We refused to choose.
+**OpenClaw** proved a framework can handle 12 channels and 100+ skills. But it costs 100MB and 400K lines. **NanoClaw** proved security-first is possible. But it's still 50MB of TypeScript. **PicoClaw** proved agents can run on $10 hardware. But it stripped out everything to get there.
 
-**ZeptoClaw** started as the question: *what if you could run hundreds of isolated AI agents on a single $5 VPS?* Not toy agents — real ones with shell access, web browsing, file management, scheduled tasks, and memory that persists across conversations.
+**ZeptoClaw** took notes. The integrations, the security, the size discipline — without the tradeoffs each one made. One 4MB Rust binary that starts in 50ms, uses 6MB of RAM, and ships with container isolation, prompt injection detection, and a circuit breaker provider stack.
 
-The answer is Rust. No garbage collector. No runtime. No 200MB Docker images. Just a 5MB binary that starts in 50ms, uses 6MB of RAM per tenant, and ships with container isolation so your agent can't `rm -rf /` your server.
+## Security
 
-ZeptoClaw is the one you deploy when security and multi-tenancy matter more than anything else.
+AI agents execute code. Most frameworks trust that nothing will go wrong.
+
+The OpenClaw ecosystem has seen CVE-2026-25253 (CVSS 8.8 — cross-site WebSocket hijacking to RCE), ClawHavoc (341 malicious skills, 9,000+ compromised installations), and 42,000 exposed instances with auth bypass. ZeptoClaw was built with this threat model in mind.
+
+| Layer | What it does |
+|-------|-------------|
+| **Container Isolation** | Every shell command runs in Docker or Apple Container — not on your host |
+| **Prompt Injection Detection** | Aho-Corasick multi-pattern matcher (17 patterns) + 4 regex rules |
+| **Secret Leak Scanner** | 22 regex patterns catch API keys, tokens, and credentials before they reach the LLM |
+| **Policy Engine** | 7 rules blocking system file access, crypto key extraction, SQL injection, encoded exploits |
+| **Input Validator** | 100KB limit, null byte detection, whitespace ratio analysis, repetition detection |
+| **Shell Blocklist** | Regex patterns blocking reverse shells, `rm -rf`, privilege escalation |
+| **SSRF Prevention** | DNS pinning, private IP blocking, scheme validation for all web requests |
+| **Tool Approval Gate** | Require explicit confirmation before executing dangerous tools |
+
+Every layer runs by default. No flags to remember, no config to enable.
 
 ## Install
 
