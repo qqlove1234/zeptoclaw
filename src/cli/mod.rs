@@ -16,6 +16,7 @@ pub mod skills;
 pub mod status;
 pub mod template;
 pub mod tools;
+pub mod watch;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
@@ -131,6 +132,17 @@ enum Commands {
     Config {
         #[command(subcommand)]
         action: ConfigAction,
+    },
+    /// Watch a URL for changes and notify
+    Watch {
+        /// URL to monitor
+        url: String,
+        /// Check interval (e.g., "1h", "30m", "15m")
+        #[arg(long, default_value = "1h")]
+        interval: String,
+        /// Channel to notify on changes (telegram, slack, discord)
+        #[arg(long)]
+        notify: String,
     },
 }
 
@@ -354,6 +366,13 @@ pub async fn run() -> Result<()> {
         }
         Some(Commands::Config { action }) => {
             config::cmd_config(action).await?;
+        }
+        Some(Commands::Watch {
+            url,
+            interval,
+            notify,
+        }) => {
+            watch::cmd_watch(url, interval, notify).await?;
         }
     }
 
