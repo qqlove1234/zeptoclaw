@@ -139,14 +139,29 @@ impl SkillsLoader {
             .collect()
     }
 
-    /// Check if required binaries and env vars are present.
+    /// Check if required binaries, env vars, and platform constraints are met.
     pub fn check_requirements(&self, skill: &Skill) -> bool {
         let meta = self.get_zeptometa(skill);
+
+        // Platform filter: if `os` is non-empty, current OS must be listed.
+        if !meta.os.is_empty() && !meta.os.iter().any(|o| o == current_os()) {
+            return false;
+        }
+
+        // All listed bins must be present.
         for bin in &meta.requires.bins {
             if !binary_in_path(bin) {
                 return false;
             }
         }
+
+        // At least one of any_bins must be present (if non-empty).
+        if !meta.requires.any_bins.is_empty()
+            && !meta.requires.any_bins.iter().any(|b| binary_in_path(b))
+        {
+            return false;
+        }
+
         for env_name in &meta.requires.env {
             if std::env::var(env_name).is_err() {
                 return false;
@@ -201,7 +216,10 @@ impl SkillsLoader {
             .metadata
             .as_ref()
             .and_then(|value| {
+                // Priority: zeptoclaw > openclaw > raw object
                 if let Some(scoped) = value.get("zeptoclaw") {
+                    serde_json::from_value(scoped.clone()).ok()
+                } else if let Some(scoped) = value.get("openclaw") {
                     serde_json::from_value(scoped.clone()).ok()
                 } else {
                     serde_json::from_value(value.clone()).ok()
@@ -306,6 +324,17 @@ fn unquote(input: &str) -> String {
         .to_string()
 }
 
+/// Map `cfg!(target_os)` to OpenClaw's platform strings.
+fn current_os() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(target_os = "windows") {
+        "win32"
+    } else {
+        "linux"
+    }
+}
+
 fn binary_in_path(bin: &str) -> bool {
     if bin.trim().is_empty() {
         return false;
@@ -386,5 +415,185 @@ Use wttr.in.
         let skill = loader.load_skill("demo").unwrap();
         assert_eq!(skill.source, "workspace");
         assert_eq!(skill.description, "workspace");
+    }
+
+    // --- OpenClaw compatibility tests ---
+
+    #[test]
+    fn test_openclaw_metadata_loads() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("github")).unwrap();
+        std::fs::write(
+            ws.join("github/SKILL.md"),
+            "---\nname: github\ndescription: GitHub integration\nmetadata: {\"openclaw\":{\"emoji\":\"🐙\",\"requires\":{\"bins\":[\"gh\"]},\"always\":true}}\n---\n# GitHub\nUse gh CLI.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("github").unwrap();
+        let meta = loader.get_zeptometa(&skill);
+        assert_eq!(meta.emoji, Some("🐙".to_string()));
+        assert!(meta.always);
+        assert_eq!(meta.requires.bins, vec!["gh"]);
+    }
+
+    #[test]
+    fn test_zeptoclaw_metadata_takes_priority_over_openclaw() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("dual")).unwrap();
+        std::fs::write(
+            ws.join("dual/SKILL.md"),
+            "---\nname: dual\ndescription: Both namespaces\nmetadata: {\"zeptoclaw\":{\"emoji\":\"🦀\"},\"openclaw\":{\"emoji\":\"🦞\"}}\n---\nBody.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("dual").unwrap();
+        let meta = loader.get_zeptometa(&skill);
+        // zeptoclaw takes priority
+        assert_eq!(meta.emoji, Some("🦀".to_string()));
+    }
+
+    #[test]
+    fn test_openclaw_unknown_fields_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("compat")).unwrap();
+        // Include OpenClaw-only fields that ZeptoClaw doesn't have
+        std::fs::write(
+            ws.join("compat/SKILL.md"),
+            "---\nname: compat\ndescription: With extra fields\nmetadata: {\"openclaw\":{\"emoji\":\"✅\",\"primaryEnv\":\"MY_API_KEY\",\"skillKey\":\"my-skill\",\"requires\":{\"bins\":[],\"config\":[\"some.config.path\"]}}}\n---\nBody.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("compat").unwrap();
+        let meta = loader.get_zeptometa(&skill);
+        // Should load successfully despite unknown fields
+        assert_eq!(meta.emoji, Some("✅".to_string()));
+    }
+
+    #[test]
+    fn test_any_bins_satisfied() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("editor")).unwrap();
+        // any_bins: at least one of these should be on PATH
+        std::fs::write(
+            ws.join("editor/SKILL.md"),
+            "---\nname: editor\ndescription: Editor\nmetadata: {\"openclaw\":{\"requires\":{\"anyBins\":[\"vim\",\"nano\",\"nonexistent_xyz\"]}}}\n---\nBody.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("editor").unwrap();
+        let meta = loader.get_zeptometa(&skill);
+        assert!(!meta.requires.any_bins.is_empty());
+        // At least vim or nano should exist on most systems
+    }
+
+    #[test]
+    fn test_any_bins_none_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("missing")).unwrap();
+        std::fs::write(
+            ws.join("missing/SKILL.md"),
+            "---\nname: missing\ndescription: Missing bins\nmetadata: {\"zeptoclaw\":{\"requires\":{\"any_bins\":[\"zzz_nonexistent_1\",\"zzz_nonexistent_2\"]}}}\n---\nBody.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("missing").unwrap();
+        assert!(!loader.check_requirements(&skill));
+    }
+
+    #[test]
+    fn test_os_filter_current_platform() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("platform")).unwrap();
+        // Skill restricted to current platform — should pass
+        std::fs::write(
+            ws.join("platform/SKILL.md"),
+            &format!(
+                "---\nname: platform\ndescription: Platform-specific\nmetadata: {{\"openclaw\":{{\"os\":[\"{}\"]}}}}\n---\nBody.",
+                current_os()
+            ),
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("platform").unwrap();
+        assert!(loader.check_requirements(&skill));
+    }
+
+    #[test]
+    fn test_os_filter_wrong_platform() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("wrong_os")).unwrap();
+        // Skill restricted to a platform we're NOT on
+        let wrong_os = if cfg!(target_os = "macos") {
+            "win32"
+        } else {
+            "darwin"
+        };
+        std::fs::write(
+            ws.join("wrong_os/SKILL.md"),
+            &format!(
+                "---\nname: wrong_os\ndescription: Wrong platform\nmetadata: {{\"openclaw\":{{\"os\":[\"{}\"]}}}}\n---\nBody.",
+                wrong_os
+            ),
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("wrong_os").unwrap();
+        assert!(!loader.check_requirements(&skill));
+    }
+
+    #[test]
+    fn test_os_filter_empty_means_all_platforms() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("universal")).unwrap();
+        std::fs::write(
+            ws.join("universal/SKILL.md"),
+            "---\nname: universal\ndescription: All platforms\nmetadata: {\"openclaw\":{\"os\":[]}}\n---\nBody.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let skill = loader.load_skill("universal").unwrap();
+        assert!(loader.check_requirements(&skill));
+    }
+
+    #[test]
+    fn test_openclaw_always_skills() {
+        let temp = tempfile::tempdir().unwrap();
+        let ws = temp.path().join("skills");
+        std::fs::create_dir_all(ws.join("auto")).unwrap();
+        std::fs::write(
+            ws.join("auto/SKILL.md"),
+            "---\nname: auto\ndescription: Auto-inject\nmetadata: {\"openclaw\":{\"always\":true}}\n---\nAlways loaded.",
+        )
+        .unwrap();
+
+        let loader = SkillsLoader::new(ws, Some(temp.path().join("empty")));
+        let always = loader.get_always_skills();
+        assert!(always.contains(&"auto".to_string()));
+    }
+
+    #[test]
+    fn test_current_os_returns_valid_value() {
+        let os = current_os();
+        assert!(
+            os == "darwin" || os == "linux" || os == "win32",
+            "unexpected os: {}",
+            os
+        );
     }
 }
