@@ -1312,6 +1312,45 @@ mod tests {
     }
 
     #[test]
+    fn test_with_base_url_together_example() {
+        let provider =
+            OpenAIProvider::with_base_url("tog_test", "https://api.together.xyz/v1");
+        assert_eq!(provider.api_base, "https://api.together.xyz/v1");
+    }
+
+    #[test]
+    fn test_with_base_url_fireworks_example() {
+        let provider = OpenAIProvider::with_base_url(
+            "fw_test",
+            "https://api.fireworks.ai/inference/v1",
+        );
+        assert_eq!(
+            provider.api_base,
+            "https://api.fireworks.ai/inference/v1"
+        );
+    }
+
+    #[test]
+    fn test_with_base_url_lm_studio_example() {
+        let provider =
+            OpenAIProvider::with_base_url("key", "http://localhost:1234/v1");
+        assert_eq!(provider.api_base, "http://localhost:1234/v1");
+    }
+
+    #[test]
+    fn test_chat_completions_url_uses_api_base() {
+        let provider =
+            OpenAIProvider::with_base_url("key", "http://localhost:11434/v1");
+        let url = format!("{}/chat/completions", provider.api_base);
+        assert_eq!(url, "http://localhost:11434/v1/chat/completions");
+
+        let provider2 =
+            OpenAIProvider::with_base_url("key", "https://api.groq.com/openai/v1");
+        let url2 = format!("{}/chat/completions", provider2.api_base);
+        assert_eq!(url2, "https://api.groq.com/openai/v1/chat/completions");
+    }
+
+    #[test]
     fn test_apply_stream_chunk_assembles_tool_calls() {
         let mut assembled = String::new();
         let mut pending_tool_calls = Vec::new();
