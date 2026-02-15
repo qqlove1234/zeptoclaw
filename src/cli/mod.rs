@@ -31,7 +31,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize configuration and workspace
-    Onboard,
+    Onboard {
+        /// Run full 10-step wizard (express mode by default)
+        #[arg(long)]
+        full: bool,
+    },
     /// Start interactive agent mode
     Agent {
         /// Direct message to process (non-interactive mode)
@@ -237,8 +241,8 @@ pub async fn run() -> Result<()> {
         Some(Commands::Version) => {
             cmd_version();
         }
-        Some(Commands::Onboard) => {
-            onboard::cmd_onboard().await?;
+        Some(Commands::Onboard { full }) => {
+            onboard::cmd_onboard(full).await?;
         }
         Some(Commands::Agent {
             message,

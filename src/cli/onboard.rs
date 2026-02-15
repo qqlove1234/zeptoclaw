@@ -8,113 +8,186 @@ use zeptoclaw::config::{Config, MemoryBackend, MemoryCitationsMode, RuntimeType}
 
 use super::common::{memory_backend_label, memory_citations_label, read_line, read_secret};
 
-/// Initialize configuration directory and save default config.
-pub(crate) async fn cmd_onboard() -> Result<()> {
-    println!("Initializing ZeptoClaw...");
-    println!();
+/// Format the express-mode next-steps message.
+fn express_next_steps() -> String {
+    [
+        "",
+        "ZeptoClaw ready!",
+        "",
+        "Try: zeptoclaw agent -m \"What can you help me with?\"",
+        "Or:  zeptoclaw agent -m \"Summarize https://news.ycombinator.com\"",
+        "",
+        "Run 'zeptoclaw onboard --full' for advanced setup (channels, heartbeat, runtime).",
+        "Run 'zeptoclaw status' to see your configuration.",
+    ]
+    .join("\n")
+}
 
-    // Create config directory
+/// Initialize configuration directory and save default config.
+///
+/// When `full` is false (default), runs express mode: creates directories
+/// silently, configures the LLM provider, saves, and prints guided next
+/// steps.  When `full` is true, runs the full 10-step interactive wizard.
+pub(crate) async fn cmd_onboard(full: bool) -> Result<()> {
+    // --- common: create directories ---
     let config_dir = Config::dir();
     std::fs::create_dir_all(&config_dir)
         .with_context(|| format!("Failed to create config directory: {:?}", config_dir))?;
-    println!("  Created config directory: {:?}", config_dir);
 
-    // Create workspace directory
     let workspace_dir = config_dir.join("workspace");
     std::fs::create_dir_all(&workspace_dir)
         .with_context(|| format!("Failed to create workspace directory: {:?}", workspace_dir))?;
-    println!("  Created workspace directory: {:?}", workspace_dir);
 
-    // Create sessions directory
     let sessions_dir = config_dir.join("sessions");
     std::fs::create_dir_all(&sessions_dir)
         .with_context(|| format!("Failed to create sessions directory: {:?}", sessions_dir))?;
-    println!("  Created sessions directory: {:?}", sessions_dir);
 
-    // Load existing config or create default
+    // --- common: load or create config ---
     let config_path = Config::path();
     let mut config = if config_path.exists() {
-        println!("  Config already exists: {:?}", config_path);
         Config::load()
             .with_context(|| format!("Failed to load existing config at {:?}", config_path))?
     } else {
-        println!("  Creating new config: {:?}", config_path);
         Config::default()
     };
 
-    println!();
-    println!("API Key Setup");
-    println!("=============");
-    println!();
-    println!("Which AI provider would you like to configure?");
-    println!("  1. Anthropic (Claude) - Recommended");
-    println!("  2. OpenAI (GPT-4, etc.)");
-    println!("  3. Both");
-    println!("  4. Skip (configure later)");
-    println!();
-    print!("Enter choice [1-4]: ");
-    io::stdout().flush()?;
+    if full {
+        // ---------- full 10-step wizard ----------
+        println!("Initializing ZeptoClaw (full wizard)...");
+        println!();
+        println!("  Config directory: {:?}", config_dir);
+        println!("  Workspace directory: {:?}", workspace_dir);
+        println!("  Sessions directory: {:?}", sessions_dir);
+        if config_path.exists() {
+            println!("  Config already exists: {:?}", config_path);
+        } else {
+            println!("  Creating new config: {:?}", config_path);
+        }
 
-    let choice = read_line()?;
+        println!();
+        println!("API Key Setup");
+        println!("=============");
+        println!();
+        println!("Which AI provider would you like to configure?");
+        println!("  1. Anthropic (Claude) - Recommended");
+        println!("  2. OpenAI (GPT-4, etc.)");
+        println!("  3. Both");
+        println!("  4. Skip (configure later)");
+        println!();
+        print!("Enter choice [1-4]: ");
+        io::stdout().flush()?;
 
-    match choice.as_str() {
-        "1" | "1." => {
-            configure_anthropic(&mut config)?;
+        let choice = read_line()?;
+
+        match choice.as_str() {
+            "1" | "1." => {
+                configure_anthropic(&mut config)?;
+            }
+            "2" | "2." => {
+                configure_openai(&mut config)?;
+            }
+            "3" | "3." => {
+                configure_anthropic(&mut config)?;
+                println!();
+                configure_openai(&mut config)?;
+            }
+            "4" | "4." | "" => {
+                println!("Skipping API key setup. You can configure later by:");
+                println!("  - Editing {:?}", config_path);
+                println!("  - Setting environment variables:");
+                println!("    ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY=sk-ant-...");
+                println!("    ZEPTOCLAW_PROVIDERS_OPENAI_API_KEY=sk-...");
+            }
+            _ => {
+                println!("Invalid choice. Skipping API key setup.");
+            }
         }
-        "2" | "2." => {
-            configure_openai(&mut config)?;
+
+        // Configure web search integration
+        configure_web_search(&mut config)?;
+
+        // Configure memory behavior.
+        configure_memory(&mut config)?;
+
+        // Configure WhatsApp + Google Sheets tools.
+        configure_whatsapp_tool(&mut config)?;
+        configure_google_sheets_tool(&mut config)?;
+
+        // Configure heartbeat service.
+        configure_heartbeat(&mut config)?;
+
+        // Configure Telegram channel
+        configure_telegram(&mut config)?;
+
+        // Configure WhatsApp channel (via bridge)
+        configure_whatsapp_channel(&mut config)?;
+
+        // Configure runtime for shell command isolation
+        configure_runtime(&mut config)?;
+
+        // Save config
+        config
+            .save()
+            .with_context(|| "Failed to save configuration")?;
+
+        println!();
+        println!("ZeptoClaw initialized successfully!");
+        println!();
+        println!("Next steps:");
+        println!("  1. Run 'zeptoclaw agent' to start the interactive agent");
+        println!("  2. Run 'zeptoclaw gateway' to start the multi-channel gateway");
+        println!("  3. Run 'zeptoclaw status' to check your configuration");
+    } else {
+        // ---------- express mode (default) ----------
+        println!("Initializing ZeptoClaw...");
+        println!();
+
+        println!("API Key Setup");
+        println!("=============");
+        println!();
+        println!("Which AI provider would you like to configure?");
+        println!("  1. Anthropic (Claude) - Recommended");
+        println!("  2. OpenAI (GPT-4, etc.)");
+        println!("  3. Both");
+        println!("  4. Skip (configure later)");
+        println!();
+        print!("Enter choice [1-4]: ");
+        io::stdout().flush()?;
+
+        let choice = read_line()?;
+
+        match choice.as_str() {
+            "1" | "1." => {
+                configure_anthropic(&mut config)?;
+            }
+            "2" | "2." => {
+                configure_openai(&mut config)?;
+            }
+            "3" | "3." => {
+                configure_anthropic(&mut config)?;
+                println!();
+                configure_openai(&mut config)?;
+            }
+            "4" | "4." | "" => {
+                println!("Skipping API key setup. You can configure later by:");
+                println!("  - Editing {:?}", config_path);
+                println!("  - Setting environment variables:");
+                println!("    ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY=sk-ant-...");
+                println!("    ZEPTOCLAW_PROVIDERS_OPENAI_API_KEY=sk-...");
+            }
+            _ => {
+                println!("Invalid choice. Skipping API key setup.");
+            }
         }
-        "3" | "3." => {
-            configure_anthropic(&mut config)?;
-            println!();
-            configure_openai(&mut config)?;
-        }
-        "4" | "4." | "" => {
-            println!("Skipping API key setup. You can configure later by:");
-            println!("  - Editing {:?}", config_path);
-            println!("  - Setting environment variables:");
-            println!("    ZEPTOCLAW_PROVIDERS_ANTHROPIC_API_KEY=sk-ant-...");
-            println!("    ZEPTOCLAW_PROVIDERS_OPENAI_API_KEY=sk-...");
-        }
-        _ => {
-            println!("Invalid choice. Skipping API key setup.");
-        }
+
+        // Save config
+        config
+            .save()
+            .with_context(|| "Failed to save configuration")?;
+
+        // Print guided next steps
+        println!("{}", express_next_steps());
     }
-
-    // Configure web search integration
-    configure_web_search(&mut config)?;
-
-    // Configure memory behavior.
-    configure_memory(&mut config)?;
-
-    // Configure WhatsApp + Google Sheets tools.
-    configure_whatsapp_tool(&mut config)?;
-    configure_google_sheets_tool(&mut config)?;
-
-    // Configure heartbeat service.
-    configure_heartbeat(&mut config)?;
-
-    // Configure Telegram channel
-    configure_telegram(&mut config)?;
-
-    // Configure WhatsApp channel (via bridge)
-    configure_whatsapp_channel(&mut config)?;
-
-    // Configure runtime for shell command isolation
-    configure_runtime(&mut config)?;
-
-    // Save config
-    config
-        .save()
-        .with_context(|| "Failed to save configuration")?;
-
-    println!();
-    println!("ZeptoClaw initialized successfully!");
-    println!();
-    println!("Next steps:");
-    println!("  1. Run 'zeptoclaw agent' to start the interactive agent");
-    println!("  2. Run 'zeptoclaw gateway' to start the multi-channel gateway");
-    println!("  3. Run 'zeptoclaw status' to check your configuration");
 
     Ok(())
 }
@@ -568,4 +641,19 @@ fn configure_runtime(config: &mut Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_express_next_steps_message() {
+        let msg = express_next_steps();
+        assert!(msg.contains("ZeptoClaw ready!"));
+        assert!(msg.contains("zeptoclaw agent -m"));
+        assert!(msg.contains("zeptoclaw onboard --full"));
+        assert!(msg.contains("zeptoclaw status"));
+        assert!(msg.contains("Summarize https://news.ycombinator.com"));
+    }
 }
