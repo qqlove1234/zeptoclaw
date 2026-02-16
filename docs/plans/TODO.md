@@ -43,6 +43,18 @@ After completing any feature, update:
 - [x] WhatsApp channel (via whatsmeow-rs bridge)
 - [x] CLI channel management (channel list/setup/test)
 - [x] Dependency manager (HasDependencies trait, DepManager, Registry)
+- [x] Security hardening (audit logging, WhatsApp HMAC, plugin SHA-256, Apple Container gating)
+- [x] Binary plugin system (JSON-RPC 2.0 stdin/stdout, BinaryPluginTool adapter)
+- [x] Secret encryption at rest (XChaCha20-Poly1305 + Argon2id)
+- [x] Tunnel providers (Cloudflare, ngrok, Tailscale, auto-detect)
+- [x] Reminder tool (persistent reminders with cron delivery)
+- [x] Memory overhaul (decay scoring, pinning, pre-compaction flush, TTL cleanup)
+- [x] Agent --dry-run flag
+- [x] Session SLO tracking
+- [x] Skills: browser (agent-browser), github (gh), email (himalaya), 1password (op), pdf (nano-pdf), skill-creator
+- [x] Stripe binary plugin (Tier 3 proof-of-concept)
+- [x] Discord DM fix (DIRECT_MESSAGES intent)
+- [x] OpenClaw skills compatibility (loader reads openclaw metadata)
 
 ---
 
@@ -52,12 +64,14 @@ After completing any feature, update:
 - [ ] Web UI (browser-based chat)
 - [ ] Pre-commit hooks
 - [ ] Audit `.clone()` calls
+- [ ] Fix OpenAI max_tokens → max_completion_tokens (avoid retry round-trip)
 
 ---
 
 ## Stats
 
-- Tests: ~1,314 total
-- Tools: 15 built-in + MCP + plugins
+- Tests: ~1,595 total
+- Tools: 19 built-in + 5 Stripe plugin + MCP
+- Skills: 8 (browser, github, email, 1password, pdf, skill-creator + 2 builtin)
 - Channels: 5 (Telegram, Slack, Discord, Webhook, WhatsApp)
 - Providers: 2 (Claude, OpenAI) + Retry + Fallback
