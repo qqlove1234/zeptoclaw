@@ -496,6 +496,10 @@ impl Config {
                 "none" | "disabled" => Some(MemoryBackend::Disabled),
                 "builtin" => Some(MemoryBackend::Builtin),
                 "qmd" => Some(MemoryBackend::Qmd),
+                "bm25" => Some(MemoryBackend::Bm25),
+                "embedding" => Some(MemoryBackend::Embedding),
+                "hnsw" => Some(MemoryBackend::Hnsw),
+                "tantivy" => Some(MemoryBackend::Tantivy),
                 _ => None,
             } {
                 self.memory.backend = parsed;
@@ -545,6 +549,12 @@ impl Config {
                 .filter(|item| !item.is_empty())
                 .map(str::to_string)
                 .collect();
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_EMBEDDING_PROVIDER") {
+            self.memory.embedding_provider = Some(val);
+        }
+        if let Ok(val) = std::env::var("ZEPTOCLAW_MEMORY_EMBEDDING_MODEL") {
+            self.memory.embedding_model = Some(val);
         }
     }
 

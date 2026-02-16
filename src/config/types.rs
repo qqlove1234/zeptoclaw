@@ -845,9 +845,17 @@ pub enum MemoryBackend {
     /// Disable memory tools.
     #[serde(rename = "none")]
     Disabled,
-    /// Built-in workspace markdown memory.
+    /// Built-in substring search (default, zero cost).
     #[default]
     Builtin,
+    /// BM25 keyword scoring (feature: memory-bm25).
+    Bm25,
+    /// LLM embedding + cosine similarity (feature: memory-embedding).
+    Embedding,
+    /// HNSW approximate nearest neighbor (feature: memory-hnsw).
+    Hnsw,
+    /// Tantivy full-text search engine (feature: memory-tantivy).
+    Tantivy,
     /// QMD backend (falls back safely when unavailable).
     Qmd,
 }
@@ -884,6 +892,18 @@ pub struct MemoryConfig {
     /// Extra workspace-relative file/dir paths to include.
     #[serde(default)]
     pub extra_paths: Vec<String>,
+    /// Embedding provider name. Only used when backend is "embedding".
+    #[serde(default)]
+    pub embedding_provider: Option<String>,
+    /// Embedding model name. Only used when backend is "embedding".
+    #[serde(default)]
+    pub embedding_model: Option<String>,
+    /// HNSW index file path override. Only used when backend is "hnsw".
+    #[serde(default)]
+    pub hnsw_index_path: Option<String>,
+    /// Tantivy index directory path override. Only used when backend is "tantivy".
+    #[serde(default)]
+    pub tantivy_index_path: Option<String>,
 }
 
 impl Default for MemoryConfig {
@@ -896,6 +916,10 @@ impl Default for MemoryConfig {
             min_score: 0.2,
             max_snippet_chars: 700,
             extra_paths: Vec::new(),
+            embedding_provider: None,
+            embedding_model: None,
+            hnsw_index_path: None,
+            tantivy_index_path: None,
         }
     }
 }
@@ -1466,5 +1490,47 @@ mod tests {
         let wac = config.channels.whatsapp_cloud.unwrap();
         assert!(wac.enabled);
         assert_eq!(wac.phone_number_id, "999");
+    }
+
+    #[test]
+    fn test_memory_backend_bm25_deserialize() {
+        let json = r#"{"memory": {"backend": "bm25"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory.backend, MemoryBackend::Bm25);
+    }
+
+    #[test]
+    fn test_memory_backend_embedding_deserialize() {
+        let json = r#"{"memory": {"backend": "embedding", "embedding_provider": "openai", "embedding_model": "text-embedding-3-small"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory.backend, MemoryBackend::Embedding);
+        assert_eq!(config.memory.embedding_provider.as_deref(), Some("openai"));
+        assert_eq!(
+            config.memory.embedding_model.as_deref(),
+            Some("text-embedding-3-small")
+        );
+    }
+
+    #[test]
+    fn test_memory_backend_hnsw_deserialize() {
+        let json = r#"{"memory": {"backend": "hnsw"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory.backend, MemoryBackend::Hnsw);
+    }
+
+    #[test]
+    fn test_memory_backend_tantivy_deserialize() {
+        let json = r#"{"memory": {"backend": "tantivy"}}"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.memory.backend, MemoryBackend::Tantivy);
+    }
+
+    #[test]
+    fn test_memory_config_new_fields_default_none() {
+        let config = MemoryConfig::default();
+        assert!(config.embedding_provider.is_none());
+        assert!(config.embedding_model.is_none());
+        assert!(config.hnsw_index_path.is_none());
+        assert!(config.tantivy_index_path.is_none());
     }
 }
