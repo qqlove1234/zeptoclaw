@@ -52,6 +52,9 @@ enum Commands {
         /// Stream the response token-by-token
         #[arg(long)]
         stream: bool,
+        /// Show what tools would be called without executing them
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Process prompts from a file
     Batch {
@@ -350,8 +353,9 @@ pub async fn run() -> Result<()> {
             message,
             template,
             stream,
+            dry_run,
         }) => {
-            agent::cmd_agent(message, template, stream).await?;
+            agent::cmd_agent(message, template, stream, dry_run).await?;
         }
         Some(Commands::Batch {
             input,
