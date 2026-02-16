@@ -364,3 +364,38 @@ fn collect_enabled_channel_deps(config: &Config) -> Vec<zeptoclaw::deps::Depende
 
     deps
 }
+
+/// Install and start a dependency with warn-on-fail (non-blocking).
+///
+/// Performs three phases in order:
+/// 1. Install - early return on failure
+/// 2. Start - early return on failure
+/// 3. Health check (10s timeout) - logs warning but does not block
+///
+/// All failures are logged as warnings, allowing the gateway to continue.
+async fn install_and_start_dep(mgr: &DepManager, dep: &zeptoclaw::deps::Dependency) {
+    // Install
+    match mgr.ensure_installed(dep).await {
+        Ok(_) => info!("✓ Installed {}", dep.name),
+        Err(e) => {
+            warn!("✗ Failed to install {}: {}", dep.name, e);
+            return;
+        }
+    }
+
+    // Start
+    match mgr.start(dep).await {
+        Ok(_) => info!("✓ Started {}", dep.name),
+        Err(e) => {
+            warn!("✗ Failed to start {}: {}", dep.name, e);
+            return;
+        }
+    }
+
+    // Health check (10s timeout)
+    let health_timeout = Duration::from_secs(10);
+    match mgr.wait_healthy(dep, health_timeout).await {
+        Ok(_) => info!("✓ {} is healthy", dep.name),
+        Err(e) => warn!("✗ {} health check failed: {}", dep.name, e),
+    }
+}
