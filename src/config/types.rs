@@ -640,7 +640,7 @@ pub struct RetryConfig {
 impl Default for RetryConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             max_retries: 3,
             base_delay_ms: 1_000,
             max_delay_ms: 30_000,
@@ -649,22 +649,13 @@ impl Default for RetryConfig {
 }
 
 /// Fallback behavior across multiple configured runtime providers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct FallbackConfig {
     /// Enable provider fallback (primary -> secondary) when possible.
     pub enabled: bool,
     /// Optional preferred fallback provider id (e.g. "openai", "anthropic").
     pub provider: Option<String>,
-}
-
-impl Default for FallbackConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            provider: None,
-        }
-    }
 }
 
 // ============================================================================

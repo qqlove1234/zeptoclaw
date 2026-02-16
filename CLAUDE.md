@@ -184,7 +184,7 @@ LLM provider abstraction via `LLMProvider` trait:
 - `RetryProvider` - Decorator: exponential backoff on 429/5xx with structured `ProviderError` classification
 - `FallbackProvider` - Decorator: primary → secondary auto-failover with circuit breaker (Closed/Open/HalfOpen)
 - `ProviderError` enum: Auth, RateLimit, Billing, ServerError, InvalidRequest, ModelNotFound, Timeout — enables smart retry/fallback
-- Runtime provider assembly in `create_agent()`: resolves all configured runtime providers (registry order) and builds a fallback chain (`p0 -> p1 -> p2 -> ...`)
+- Runtime provider assembly in `create_agent()`: resolves configured runtime providers in registry order, builds fallback chain only when `providers.fallback.enabled`, honors `providers.fallback.provider` as preferred first fallback, and optionally wraps the chain with `RetryProvider` (`providers.retry.*`)
 - `StreamEvent` enum + `chat_stream()` on LLMProvider trait for token-by-token streaming
 - `OutputFormat` enum (Text/Json/JsonSchema) with `to_openai_response_format()` and `to_claude_system_suffix()`
 
@@ -335,13 +335,19 @@ cargo build --release
 ## Testing
 
 ```bash
-# Unit tests (1314 tests)
+# Unit tests (1612 tests)
 cargo test --lib
+
+# Main binary tests (54 tests)
+cargo test --bin zeptoclaw
+
+# CLI smoke tests (23 tests)
+cargo test --test cli_smoke
 
 # Integration tests (68 tests)
 cargo test --test integration
 
-# All tests (~1,314 total including doc tests)
+# All tests (~1,900 total including doc tests)
 cargo test
 
 # Specific test

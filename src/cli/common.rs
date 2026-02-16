@@ -15,7 +15,7 @@ use zeptoclaw::config::{Config, MemoryBackend, MemoryCitationsMode};
 use zeptoclaw::cron::CronService;
 use zeptoclaw::providers::{
     resolve_runtime_providers, ClaudeProvider, FallbackProvider, LLMProvider, OpenAIProvider,
-    RuntimeProviderSelection,
+    RetryProvider, RuntimeProviderSelection,
 };
 use zeptoclaw::runtime::{create_runtime, NativeRuntime};
 use zeptoclaw::session::SessionManager;
@@ -132,16 +132,65 @@ fn provider_from_runtime_selection(
     }
 }
 
+struct RuntimeProviderCandidate {
+    name: &'static str,
+    provider: Box<dyn LLMProvider>,
+}
+
+fn apply_fallback_preference(
+    candidates: &mut Vec<RuntimeProviderCandidate>,
+    preferred: Option<&str>,
+) {
+    let Some(preferred) = preferred.map(str::trim).filter(|name| !name.is_empty()) else {
+        return;
+    };
+
+    if candidates.len() < 2 {
+        return;
+    }
+
+    if candidates[0].name.eq_ignore_ascii_case(preferred) {
+        warn!(
+            preferred_fallback = preferred,
+            primary = candidates[0].name,
+            "Preferred fallback provider is already primary; keeping registry order"
+        );
+        return;
+    }
+
+    let preferred_index = candidates
+        .iter()
+        .enumerate()
+        .skip(1)
+        .find_map(|(index, candidate)| {
+            candidate
+                .name
+                .eq_ignore_ascii_case(preferred)
+                .then_some(index)
+        });
+
+    if let Some(index) = preferred_index {
+        let preferred_candidate = candidates.remove(index);
+        candidates.insert(1, preferred_candidate);
+    } else {
+        warn!(
+            preferred_fallback = preferred,
+            "Preferred fallback provider is not configured or runtime-supported; keeping registry order"
+        );
+    }
+}
+
 fn build_runtime_provider_chain(
     config: &Config,
 ) -> Option<(Box<dyn LLMProvider>, Vec<&'static str>)> {
-    let mut provider_names = Vec::new();
-    let mut providers: Vec<Box<dyn LLMProvider>> = Vec::new();
+    let mut candidates: Vec<RuntimeProviderCandidate> = Vec::new();
 
     for selection in resolve_runtime_providers(config) {
         if let Some(provider) = provider_from_runtime_selection(&selection) {
-            provider_names.push(selection.name);
-            providers.push(provider);
+            candidates.push(RuntimeProviderCandidate {
+                name: selection.name,
+                provider,
+            });
         } else {
             warn!(
                 provider = selection.name,
@@ -151,22 +200,52 @@ fn build_runtime_provider_chain(
         }
     }
 
-    let mut providers_iter = providers.into_iter();
-    let first = providers_iter.next()?;
+    let mut candidates_iter = candidates.into_iter();
+    let first = candidates_iter.next()?;
 
     // Only chain multiple providers when fallback is explicitly enabled.
     // Without this gate, users who configure multiple API keys for different
     // purposes (e.g. Anthropic for production, OpenAI for testing) would get
     // unexpected automatic failover.
     if !config.providers.fallback.enabled {
-        return Some((first, vec![provider_names[0]]));
+        return Some((first.provider, vec![first.name]));
     }
 
-    let provider_chain = providers_iter.fold(first, |primary, fallback| {
-        Box::new(FallbackProvider::new(primary, fallback)) as Box<dyn LLMProvider>
-    });
+    let mut fallback_candidates: Vec<RuntimeProviderCandidate> = candidates_iter.collect();
+    if !fallback_candidates.is_empty() {
+        let mut ordered = Vec::with_capacity(1 + fallback_candidates.len());
+        ordered.push(first);
+        ordered.append(&mut fallback_candidates);
+        apply_fallback_preference(&mut ordered, config.providers.fallback.provider.as_deref());
 
-    Some((provider_chain, provider_names))
+        let mut ordered_iter = ordered.into_iter();
+        let primary = ordered_iter.next()?;
+        let mut provider_names = vec![primary.name];
+        let mut provider_chain = primary.provider;
+
+        for candidate in ordered_iter {
+            provider_names.push(candidate.name);
+            provider_chain = Box::new(FallbackProvider::new(provider_chain, candidate.provider))
+                as Box<dyn LLMProvider>;
+        }
+
+        return Some((provider_chain, provider_names));
+    }
+
+    Some((first.provider, vec![first.name]))
+}
+
+fn apply_retry_wrapper(provider: Box<dyn LLMProvider>, config: &Config) -> Box<dyn LLMProvider> {
+    if !config.providers.retry.enabled {
+        return provider;
+    }
+
+    Box::new(
+        RetryProvider::new(provider)
+            .with_max_retries(config.providers.retry.max_retries)
+            .with_base_delay_ms(config.providers.retry.base_delay_ms)
+            .with_max_delay_ms(config.providers.retry.max_delay_ms),
+    )
 }
 
 fn build_skills_prompt(config: &Config) -> String {
@@ -680,8 +759,23 @@ Enable runtime.allow_fallback_to_native to opt in to native fallback.",
     if let Some((provider_chain, provider_names)) = build_runtime_provider_chain(&config) {
         let chain_label = provider_names.join(" -> ");
         let provider_count = provider_names.len();
+        let retry_enabled = config.providers.retry.enabled;
+        let retry_max_retries = config.providers.retry.max_retries;
+        let retry_base_delay_ms = config.providers.retry.base_delay_ms;
+        let retry_max_delay_ms = config.providers.retry.max_delay_ms;
+
+        let provider_chain = apply_retry_wrapper(provider_chain, &config);
 
         agent.set_provider(provider_chain).await;
+
+        if retry_enabled {
+            info!(
+                max_retries = retry_max_retries,
+                base_delay_ms = retry_base_delay_ms,
+                max_delay_ms = retry_max_delay_ms,
+                "Configured runtime provider retry wrapper"
+            );
+        }
 
         if provider_count > 1 {
             info!(
@@ -830,6 +924,47 @@ pub(crate) fn friendly_api_error(provider: &str, status: u16, body: &str) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    };
+
+    use async_trait::async_trait;
+    use zeptoclaw::error::ProviderError;
+    use zeptoclaw::providers::{ChatOptions, LLMResponse, ToolDefinition};
+    use zeptoclaw::session::Message;
+
+    #[derive(Debug)]
+    struct FlakyProvider {
+        calls: Arc<AtomicU32>,
+        fail_until: u32,
+    }
+
+    #[async_trait]
+    impl LLMProvider for FlakyProvider {
+        async fn chat(
+            &self,
+            _messages: Vec<Message>,
+            _tools: Vec<ToolDefinition>,
+            _model: Option<&str>,
+            _options: ChatOptions,
+        ) -> zeptoclaw::error::Result<LLMResponse> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call <= self.fail_until {
+                Err(ProviderError::RateLimit("simulated rate limit".to_string()).into())
+            } else {
+                Ok(LLMResponse::text("ok"))
+            }
+        }
+
+        fn default_model(&self) -> &str {
+            "mock-model"
+        }
+
+        fn name(&self) -> &str {
+            "mock"
+        }
+    }
 
     #[test]
     fn test_friendly_api_error_401_anthropic() {
@@ -882,6 +1017,7 @@ mod tests {
     #[test]
     fn test_build_runtime_provider_chain_preserves_registry_order() {
         let mut config = Config::default();
+        config.providers.fallback.enabled = true;
         config.providers.anthropic = Some(zeptoclaw::config::ProviderConfig {
             api_key: Some("sk-ant".to_string()),
             ..Default::default()
@@ -905,6 +1041,29 @@ mod tests {
     }
 
     #[test]
+    fn test_build_runtime_provider_chain_honors_preferred_fallback_provider() {
+        let mut config = Config::default();
+        config.providers.fallback.enabled = true;
+        config.providers.fallback.provider = Some("groq".to_string());
+        config.providers.anthropic = Some(zeptoclaw::config::ProviderConfig {
+            api_key: Some("sk-ant".to_string()),
+            ..Default::default()
+        });
+        config.providers.openai = Some(zeptoclaw::config::ProviderConfig {
+            api_key: Some("sk-openai".to_string()),
+            ..Default::default()
+        });
+        config.providers.groq = Some(zeptoclaw::config::ProviderConfig {
+            api_key: Some("gsk-test".to_string()),
+            ..Default::default()
+        });
+
+        let (_provider, names) =
+            build_runtime_provider_chain(&config).expect("provider chain should resolve");
+        assert_eq!(names, vec!["anthropic", "groq", "openai"]);
+    }
+
+    #[test]
     fn test_build_runtime_provider_chain_no_chain_when_fallback_disabled() {
         let mut config = Config::default();
         config.providers.fallback.enabled = false;
@@ -922,5 +1081,64 @@ mod tests {
         // Only the highest-priority provider is used
         assert_eq!(names, vec!["anthropic"]);
         assert_eq!(provider.name(), "claude");
+    }
+
+    #[tokio::test]
+    async fn test_apply_retry_wrapper_retries_when_enabled() {
+        let mut config = Config::default();
+        config.providers.retry.enabled = true;
+        config.providers.retry.max_retries = 3;
+        config.providers.retry.base_delay_ms = 0;
+        config.providers.retry.max_delay_ms = 0;
+
+        let calls = Arc::new(AtomicU32::new(0));
+        let wrapped = apply_retry_wrapper(
+            Box::new(FlakyProvider {
+                calls: Arc::clone(&calls),
+                fail_until: 2,
+            }),
+            &config,
+        );
+
+        let result = wrapped
+            .chat(
+                vec![Message::user("hello")],
+                vec![],
+                None,
+                ChatOptions::new(),
+            )
+            .await
+            .expect("retry wrapper should eventually succeed");
+
+        assert_eq!(result.content, "ok");
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_apply_retry_wrapper_is_noop_when_disabled() {
+        let mut config = Config::default();
+        config.providers.retry.enabled = false;
+
+        let calls = Arc::new(AtomicU32::new(0));
+        let wrapped = apply_retry_wrapper(
+            Box::new(FlakyProvider {
+                calls: Arc::clone(&calls),
+                fail_until: 1,
+            }),
+            &config,
+        );
+
+        let err = wrapped
+            .chat(
+                vec![Message::user("hello")],
+                vec![],
+                None,
+                ChatOptions::new(),
+            )
+            .await
+            .expect_err("retry disabled should not retry");
+
+        assert!(err.to_string().contains("rate limit"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }
