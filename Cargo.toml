@@ -98,10 +98,8 @@ dirs = "5.0"
 # =============================================================================
 # UUID v4 for unique session identifiers
 uuid = { version = "1.6", features = ["v4"] }
-# Timestamps for message history
+# Timestamps for message history and local time formatting
 chrono = { version = "0.4", features = ["serde"] }
-# IANA timezone database for local time formatting
-chrono-tz = "0.10"
 
 # =============================================================================
 # CHANNELS
