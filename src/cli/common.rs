@@ -15,8 +15,8 @@ use zeptoclaw::config::templates::{AgentTemplate, TemplateRegistry};
 use zeptoclaw::config::{Config, MemoryBackend, MemoryCitationsMode};
 use zeptoclaw::cron::CronService;
 use zeptoclaw::providers::{
-    resolve_runtime_providers, ClaudeProvider, FallbackProvider, LLMProvider, OpenAIProvider,
-    RetryProvider, RuntimeProviderSelection,
+    provider_config_by_name, resolve_runtime_providers, ClaudeProvider, FallbackProvider,
+    LLMProvider, OpenAIProvider, RetryProvider, RuntimeProviderSelection,
 };
 use zeptoclaw::runtime::{create_runtime, NativeRuntime};
 use zeptoclaw::session::SessionManager;
@@ -259,63 +259,9 @@ fn apply_retry_wrapper(provider: Box<dyn LLMProvider>, config: &Config) -> Box<d
 }
 
 fn provider_auth_method(config: &Config, name: &str) -> AuthMethod {
-    match name {
-        "anthropic" => config
-            .providers
-            .anthropic
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "openai" => config
-            .providers
-            .openai
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "openrouter" => config
-            .providers
-            .openrouter
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "groq" => config
-            .providers
-            .groq
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "zhipu" => config
-            .providers
-            .zhipu
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "vllm" => config
-            .providers
-            .vllm
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "gemini" => config
-            .providers
-            .gemini
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "ollama" => config
-            .providers
-            .ollama
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        "nvidia" => config
-            .providers
-            .nvidia
-            .as_ref()
-            .map(|p| p.resolved_auth_method())
-            .unwrap_or_default(),
-        _ => AuthMethod::ApiKey,
-    }
+    provider_config_by_name(config, name)
+        .map(|p| p.resolved_auth_method())
+        .unwrap_or_default()
 }
 
 async fn refresh_oauth_credentials_if_needed(config: &Config) {

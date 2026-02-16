@@ -105,7 +105,7 @@ pub const PROVIDER_REGISTRY: &[ProviderSpec] = &[
     },
 ];
 
-fn provider_config_by_name<'a>(config: &'a Config, name: &str) -> Option<&'a ProviderConfig> {
+pub fn provider_config_by_name<'a>(config: &'a Config, name: &str) -> Option<&'a ProviderConfig> {
     match name {
         "anthropic" => config.providers.anthropic.as_ref(),
         "openai" => config.providers.openai.as_ref(),
