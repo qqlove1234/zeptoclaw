@@ -34,6 +34,7 @@ pub use agent::{AgentLoop, ContextBuilder};
 pub use bus::{InboundMessage, MediaAttachment, MediaType, MessageBus, OutboundMessage};
 pub use channels::{
     BaseChannelConfig, Channel, ChannelManager, SlackChannel, TelegramChannel, WhatsAppChannel,
+    WhatsAppCloudChannel,
 };
 pub use config::Config;
 pub use cron::{CronJob, CronPayload, CronSchedule, CronService};
