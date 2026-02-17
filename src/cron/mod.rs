@@ -159,6 +159,19 @@ fn next_run_at(schedule: &CronSchedule, now: i64) -> Option<i64> {
     }
 }
 
+/// Compute a random-ish delay in [0, max_ms) using system clock nanoseconds.
+/// Avoids adding `rand` crate — sufficient decorrelation for scheduling jitter.
+fn jitter_delay(max_ms: u64) -> std::time::Duration {
+    if max_ms == 0 {
+        return std::time::Duration::ZERO;
+    }
+    let jitter = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 % max_ms)
+        .unwrap_or(0);
+    std::time::Duration::from_millis(jitter)
+}
+
 /// Persistent cron scheduler.
 pub struct CronService {
     store_path: PathBuf,
@@ -166,17 +179,24 @@ pub struct CronService {
     bus: Arc<MessageBus>,
     running: Arc<AtomicBool>,
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+    jitter_ms: u64,
 }
 
 impl CronService {
     /// Create a new cron service.
     pub fn new(store_path: PathBuf, bus: Arc<MessageBus>) -> Self {
+        Self::with_jitter(store_path, bus, 0)
+    }
+
+    /// Create a new cron service with configurable jitter (milliseconds).
+    pub fn with_jitter(store_path: PathBuf, bus: Arc<MessageBus>, jitter_ms: u64) -> Self {
         Self {
             store_path,
             store: Arc::new(RwLock::new(CronStore::default())),
             bus,
             running: Arc::new(AtomicBool::new(false)),
             handle: Arc::new(RwLock::new(None)),
+            jitter_ms,
         }
     }
 
@@ -203,11 +223,12 @@ impl CronService {
         let store_path = self.store_path.clone();
         let bus = Arc::clone(&self.bus);
         let running = Arc::clone(&self.running);
+        let jitter_ms = self.jitter_ms;
 
         let handle = tokio::spawn(async move {
             info!("Cron service started");
             while running.load(Ordering::SeqCst) {
-                if let Err(err) = tick(&store, &store_path, &bus).await {
+                if let Err(err) = tick(&store, &store_path, &bus, jitter_ms).await {
                     error!("Cron tick failed: {}", err);
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -320,6 +341,7 @@ async fn tick(
     store: &Arc<RwLock<CronStore>>,
     store_path: &PathBuf,
     bus: &Arc<MessageBus>,
+    jitter_ms: u64,
 ) -> Result<()> {
     let now = now_ms();
     let due_jobs: Vec<CronJob> = {
@@ -346,6 +368,9 @@ async fn tick(
             &job.payload.chat_id,
             &job.payload.message,
         );
+        if jitter_ms > 0 {
+            tokio::time::sleep(jitter_delay(jitter_ms)).await;
+        }
         match bus.publish_inbound(inbound).await {
             Ok(_) => results.push((job.id.clone(), true, None)),
             Err(e) => results.push((job.id.clone(), false, Some(e.to_string()))),
@@ -455,5 +480,26 @@ mod tests {
         let removed = service.remove_job(&job.id).await.unwrap();
         assert!(removed);
         assert!(service.list_jobs(true).await.is_empty());
+    }
+
+    #[test]
+    fn test_jitter_delay_zero() {
+        let d = jitter_delay(0);
+        assert_eq!(d, std::time::Duration::ZERO);
+    }
+
+    #[test]
+    fn test_jitter_delay_bounded() {
+        let max_ms = 500;
+        let d = jitter_delay(max_ms);
+        assert!(d < std::time::Duration::from_millis(max_ms));
+    }
+
+    #[test]
+    fn test_cron_service_with_jitter() {
+        let temp = tempdir().unwrap();
+        let service =
+            CronService::with_jitter(temp.path().join("jobs.json"), Arc::new(MessageBus::new()), 250);
+        assert_eq!(service.jitter_ms, 250);
     }
 }
