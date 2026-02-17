@@ -1,0 +1,4 @@
+# RISC-V musl: use raw asm syscalls instead of libc::getrandom()
+# to avoid null-pointer SIGSEGV in release builds (GH-48).
+[target.riscv64gc-unknown-linux-musl]
+rustflags = ['--cfg', 'getrandom_backend="linux_raw"']
