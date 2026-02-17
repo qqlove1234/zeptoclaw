@@ -306,7 +306,7 @@ pub async fn screenshot_base64(adb: &AdbExecutor) -> Result<String> {
         .shell("screencap -p | base64")
         .await
         .map_err(|e| ZeptoError::Tool(format!("Screenshot failed: {}", e)))?;
-    // Trim trailing newlines that base64 may add.
+    // Trim trailing newlines that base64 adds.
     Ok(output.trim_end().to_string())
 }
 

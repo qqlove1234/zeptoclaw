@@ -83,7 +83,7 @@ impl AndroidTool {
             .await
             .map_err(|e| ZeptoError::Tool(format!("UI dump failed: {}", e)))?;
 
-        // Strip the "UI hierchary dumped to:" line if present, but keep the full XML payload
+        // Strip the "UI hierarchy dumped to:" line if present, but keep the full XML payload
         let xml_start = dump.find("<?xml").or_else(|| dump.find("<hierarchy"));
         let xml = match xml_start {
             Some(idx) => &dump[idx..],
