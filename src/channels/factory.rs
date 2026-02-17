@@ -9,6 +9,7 @@ use crate::config::Config;
 
 use super::webhook::{WebhookChannel, WebhookChannelConfig};
 use super::WhatsAppChannel;
+use super::WhatsAppCloudChannel;
 use super::{BaseChannelConfig, ChannelManager, DiscordChannel, SlackChannel, TelegramChannel};
 
 /// Register all configured channels that currently have implementations.
@@ -110,6 +111,26 @@ pub async fn register_configured_channels(
                     )))
                     .await;
                 info!("Registered WhatsApp channel");
+            }
+        }
+    }
+
+    // WhatsApp Cloud API (official)
+    if let Some(ref wac_config) = config.channels.whatsapp_cloud {
+        if wac_config.enabled {
+            if wac_config.phone_number_id.is_empty() || wac_config.access_token.is_empty() {
+                warn!("WhatsApp Cloud channel enabled but phone_number_id or access_token is empty");
+            } else {
+                manager
+                    .register(Box::new(WhatsAppCloudChannel::new(
+                        wac_config.clone(),
+                        bus.clone(),
+                    )))
+                    .await;
+                info!(
+                    "Registered WhatsApp Cloud API channel on {}:{}",
+                    wac_config.bind_address, wac_config.port
+                );
             }
         }
     }
