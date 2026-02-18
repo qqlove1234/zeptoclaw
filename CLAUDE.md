@@ -18,7 +18,7 @@ cargo clippy -- -D warnings
 cargo fmt
 
 # Test counts (cargo test)
-# lib: 1791, main: 59, cli_smoke: 23, e2e: 13, integration: 70, doc: 141 (116 passed, 25 ignored)
+# lib: 1795, main: 59, cli_smoke: 23, e2e: 13, integration: 70, doc: 141 (116 passed, 25 ignored)
 
 # Version
 ./target/release/zeptoclaw --version
@@ -204,7 +204,7 @@ src/
 │       ├── protocol.rs   # JSON-RPC 2.0 types, content blocks
 │       ├── client.rs     # HTTP transport, tools cache
 │       └── wrapper.rs    # McpToolWrapper adapts MCP tools to Tool trait
-├── utils/          # Utility functions (sanitize, metrics, telemetry, cost)
+├── utils/          # Utility functions (sanitize, metrics, telemetry, cost, pidfile)
 ├── batch.rs        # Batch mode (load prompts from file, format results)
 ├── error.rs        # Error types (ZeptoError)
 ├── lib.rs          # Library exports
@@ -274,6 +274,7 @@ Message input channels via `Channel` trait:
 - `metrics.rs` - MetricsCollector: per-tool call stats, token tracking, session summary (wired into AgentLoop)
 - `telemetry.rs` - Prometheus text exposition + JSON metrics rendering from MetricsCollector
 - `cost.rs` - Model pricing tables (8 models), CostTracker with per-provider/model cost accumulation
+- `pidfile.rs` - PID file lock for single-instance gateway enforcement (`~/.zeptoclaw/gateway.pid`)
 
 ### Batch (`src/batch.rs`)
 - Load prompts from text files or JSONL (one per line, `#` comments skipped)

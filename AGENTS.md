@@ -16,7 +16,8 @@ Project-level guidance for coding agents working in this repository.
 - Runtime provider resolution: builds chain in registry order only when `providers.fallback.enabled`; honors `providers.fallback.provider`; can wrap chain with `RetryProvider` via `providers.retry.*`
 - Channel dispatch: avoids holding the channels map `RwLock` across async `send()` awaits
 - Model switching: Telegram `/model` supports per-chat overrides (in-memory + long-term)
-- Tests: 1791 lib + 59 main + 23 cli_smoke + 13 e2e + 70 integration + 141 doc (116 passed, 25 ignored)
+- Gateway: single-instance enforcement via PID file lock (`~/.zeptoclaw/gateway.pid`)
+- Tests: 1795 lib + 59 main + 23 cli_smoke + 13 e2e + 70 integration + 141 doc (116 passed, 25 ignored)
 
 ## Task Tracking Protocol
 
