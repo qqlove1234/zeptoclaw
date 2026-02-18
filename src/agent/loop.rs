@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{watch, Mutex, RwLock};
-use tracing::{debug, error, info, info_span, Instrument};
+use tracing::{debug, error, info, info_span, warn, Instrument};
 
 use crate::agent::context_monitor::ContextMonitor;
 use crate::bus::{InboundMessage, MessageBus, OutboundMessage};
@@ -327,6 +327,11 @@ impl AgentLoop {
             if let Some(provider) = self.get_provider_by_name(provider_name).await {
                 return Some(provider);
             }
+            warn!(
+                provider = %provider_name,
+                "Provider override '{}' not found in registry, falling back to default",
+                provider_name
+            );
         }
         let p = self.provider.read().await;
         p.clone()
