@@ -168,6 +168,8 @@ struct OpenAIChoice {
 struct OpenAIResponseMessage {
     /// Text content (may be null if tool_calls present)
     content: Option<String>,
+    /// Reasoning content (sometimes provided by models like O1/O3 or specialized backends)
+    reasoning: Option<String>,
     /// Tool calls made by the model
     tool_calls: Option<Vec<OpenAIToolCallResponse>>,
 }
@@ -444,7 +446,13 @@ fn convert_response(response: OpenAIResponse) -> LLMResponse {
 
     let (content, tool_calls) = match choice {
         Some(c) => {
-            let content = c.message.content.unwrap_or_default();
+            let mut content = c.message.content.unwrap_or_default();
+            // Fallback to reasoning if content is empty (e.g. O1/O3 models or specialized gateways)
+            if content.trim().is_empty() {
+                if let Some(reasoning) = c.message.reasoning {
+                    content = reasoning;
+                }
+            }
             let tool_calls = c
                 .message
                 .tool_calls

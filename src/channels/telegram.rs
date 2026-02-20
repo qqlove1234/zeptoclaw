@@ -318,7 +318,8 @@ impl Channel for TelegramChannel {
                                     user_id,
                                     chat_id,
                                     if text.len() > 50 {
-                                        format!("{}...", &text[..50])
+                                        let preview: String = text.chars().take(50).collect();
+                                        format!("{}...", preview)
                                     } else {
                                         text.to_string()
                                     }
@@ -421,6 +422,12 @@ impl Channel for TelegramChannel {
         let chat_id: i64 = msg.chat_id.parse().map_err(|_| {
             ZeptoError::Channel(format!("Invalid Telegram chat ID: {}", msg.chat_id))
         })?;
+
+        // Guard against empty messages (Telegram API will reject them)
+        if msg.content.trim().is_empty() {
+            warn!("Telegram: Attempted to send empty message to chat {}, skipping", chat_id);
+            return Ok(());
+        }
 
         info!("Telegram: Sending message to chat {}", chat_id);
 

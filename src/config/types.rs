@@ -83,8 +83,8 @@ pub struct CompactionConfig {
 impl Default for CompactionConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
-            context_limit: 100_000,
+            enabled: true,
+            context_limit: 12000,
             threshold: 0.80,
         }
     }
