@@ -1,0 +1,52 @@
+name: ZeptoClaw Build with Compaction
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_compaction:
+        description: 'Enable context compaction'
+        required: false
+        default: 'true'
+      context_limit:
+        description: 'Context limit tokens'
+        required: false
+        default: '12000'
+      threshold:
+        description: 'Compaction threshold 0-1'
+        required: false
+        default: '0.8'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Apply fixes
+        run: |
+          # Fix UTF-8 char boundary bug
+          sed -i 's/format!("{}...", &\&text\[\.\.50\])/let preview: String = text.chars().take(50).collect(); format!("{}...", preview)/' src/channels/telegram.rs
+          
+          # Enable compaction
+          if [[ "${{ inputs.enable_compaction }}" == "true" ]]; then
+            sed -i 's/enabled: false/enabled: true/' src/config/types.rs
+            sed -i 's/context_limit: 100_000/context_limit: ${{ inputs.context_limit }}/' src/config/types.rs
+            sed -i 's/threshold: 0.80/threshold: ${{ inputs.threshold }}/' src/config/types.rs
+          fi
+          
+          git diff
+
+      - name: Build
+        run: cargo build --release -v
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeptoclaw-x86_64-unknown-linux-gnu
+          path: target/release/zeptoclaw
